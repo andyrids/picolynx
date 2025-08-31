@@ -1,0 +1,86 @@
+[project]
+name = "picolynx"
+description = "Auto-attach RPi Pico devices to WSL."
+authors = [{name = "Andrew Ridyard", email = "andyrids.uncapped698@passmail.net"}]
+maintainers = [{name = "Andrew Ridyard", email = "andyrids.uncapped698@passmail.net"}]
+dynamic = ["version"]
+license = "GNU General Public License v3 or later (GPLv3+)"
+license-files = {file = "LICENSE.md", content-type = "text/markdown"}
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.10"
+classifiers=[
+    # 3 - Alpha | 4 - Beta | 5 - Production/Stable
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    # Python versions
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Embedded Systems",
+]
+keywords = ["micropython", "package", "microcontroller", "textualize", "rpi"]
+dependencies = [
+    "duckdb>=1.3.2",
+    "mpremote>=1.26.0",
+    "pyserial>=3.5",
+    "textual>=5.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "hatch>=1.14.1",
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.0.0",
+    "pytest-cov>=6.2.1",
+    "pytest-mock>=3.14.1",
+    "ruff>=0.11.5",
+    "textual-dev>=1.7.0",
+]
+
+[project.urls]
+Repository = "https://github.com/andyrids/picolynx"
+Issues = "https://github.com/andyrids/picolynx/-/issues"
+
+[tool.ruff]
+exclude = ["lib", "env"]
+indent-width = 4
+line-length = 80
+
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "auto"
+quote-style = "double"
+
+[tool.ruff.lint]
+select = [
+    "D1",  # pydocstyle
+    "E",   # pycodestyle
+    "ERA", # commented out code
+    "W",   # pycodestyle
+    "C90", # McCabe complexity
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"**/{test_}*" = ["D102"] # Missing docstring in public method
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+local_scheme = "no-local-version"
+version_scheme = "guess-next-dev"

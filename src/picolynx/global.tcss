@@ -1,0 +1,61 @@
+* {
+    background: $background;
+    color: #e9e9e9;
+    scrollbar-background: #161e31;
+    scrollbar-background-hover: #161e31;
+    scrollbar-background-active: #161e31;
+    scrollbar-color: #33405d;
+    scrollbar-color-hover: #404f71;
+    scrollbar-color-active: #4f608a;
+    
+}
+
+DataTable {
+    background: $background;
+    height: 9;
+    margin: 0 0;
+    overflow-x: hidden;
+    padding: 1 0;
+
+    &:focus {
+        background-tint: $background;
+    }
+
+    & > .datatable--odd-row {
+        background: #131a2c;
+    }
+    & > .datatable--even-row {
+        background: #0f1525;
+    }
+    & > .datatable--header {
+        background: transparent;
+        color: #c5c7d2;
+    }
+}
+
+Footer {
+    background: #c5c7d2;
+    dock: bottom;
+    height: 1;
+}
+
+Header {
+    background: #c5c7d2;
+    dock: top;
+    height: 1;
+}
+
+Horizontal {
+    grid-columns: 1fr;
+    grid-gutter: 1 1;
+    grid-size: 2;
+    layout: grid;
+    margin: 0 1;
+}
+
+#info, #listdir, #statvfs {
+    border: round #33405d;
+    border-title-align: center;
+    border-title-color: #c5c7d2;
+    border-title-style: bold;
+}

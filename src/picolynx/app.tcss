@@ -1,0 +1,9 @@
+* {
+    scrollbar-background: #161e31;
+    scrollbar-background-hover: #161e31;
+    scrollbar-background-active: #161e31;
+    scrollbar-color: #33405d;
+    scrollbar-color-hover: #404f71;
+    scrollbar-color-active: #4f608a;
+    color: #e9e9e9;
+}
