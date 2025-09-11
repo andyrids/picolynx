@@ -1,5 +1,5 @@
 
 """"""
-from ._serial import Device
+# from ._serial import Device
 
-__all__ = ("Device",)
+# __all__ = ("Device",)

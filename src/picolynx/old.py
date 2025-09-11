@@ -1,14 +1,17 @@
 """"""
+import getpass
 import logging
 import time
 import threading
 from itertools import chain
 from pathlib import Path
+import socket
 from typing import ClassVar
 
 from mpremote import mip
 from rich.console import Console
 from rich.pretty import pprint
+from rich.text import Text
 from rich.table import Table
 from picolynx.connection._serial import REPL, Device, Transport, buffer_factory
 from textual import work
@@ -29,7 +32,9 @@ class TUIHeader(Horizontal):
     def compose(self) -> ComposeResult:
         """"""
         yield Label(f"[b]Serpent[/] [dim]v0.1.0[/]", id="header-title")
-
+        hostname = Text.from_markup(f"{getpass.getuser()}@{socket.gethostname()}")
+        yield Label(hostname, id="header-hostname")
+# app-title app-user-host
 
 class TUI(App):
     """"""
