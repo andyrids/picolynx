@@ -476,14 +476,25 @@ def enable_pnp_audit() -> None:
 
 
 def usbipd_state() -> USBIPDState:
-    """"""
-    usbipd_state = subprocess.Popen(
-        ["usbipd", "state"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        shell=False
-    )
+    """Fetches the current state of all USB devices in machine-readable JSON.
+
+    Raises:
+       USBIPDError: `usbipd` is not installed.
+    
+    Returns:
+        Current state of all USB devices.
+    """
+    try:
+        usbipd_state = subprocess.Popen(
+            ["usbipd", "state"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            shell=False
+        )
+    except FileNotFoundError as e:
+        _logger.fatal("`usbipd` is not installed", exc_info=True)
+        raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
 
     try:
         stdout, stderr = usbipd_state.communicate(timeout=5)
@@ -569,8 +580,6 @@ if __name__ == "__main__":
         if device_uid in device["InstanceId"] and device["BusId"]:
             pprint(f"{device_uid} | {device["InstanceId"]}")
 
-    for i in wsl_distros():
-        pprint(i)
     try:
         app = TUI()
         app.run()

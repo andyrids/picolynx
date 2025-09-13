@@ -2,10 +2,11 @@
 
 ```sh
 textual console -x DEBUG -x EVENT -x INFO -x SYSTEM
+textual console -x DEBUG -x EVENT
 ```
 
 ```sh
-textual run --dev src/serpent/__main__.py
+textual run --dev src/picolynx/__main__.py
 ```
 
     & > .datatable--odd-row {
