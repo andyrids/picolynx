@@ -356,7 +356,7 @@ class TUI(App):
             device_table.add_row(
                 Text(device["BusId"], style=text_style),
                 Text(f"{VID}:{PID}", style=text_style),
-                Text(device["Description"], style=text_style),
+                Text(device["Description"], style=text_style, overflow="ellipsis"),
                 Text(str(bool(device["PersistedGuid"])), style=text_style),
                 Text(str(bool(device["StubInstanceId"])), style=text_style),
             )

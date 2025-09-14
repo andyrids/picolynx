@@ -44,7 +44,7 @@ DataTable {
     margin: 0 0;
     min-height: 5;
     overflow-y: scroll;
-    padding: 1 1;
+    padding: 0 1;
     width: 100%;
     
     &:focus {
@@ -65,7 +65,6 @@ Footer {
     background: $background;
     height: 1;
 }
-
 
 # Custom TUIHeader widget
 TUIHeader {
@@ -127,4 +126,5 @@ TUIHeader {
     column-span: 3;
     grid-gutter: 1;
     grid-size: 3;
+    padding: 0 1;
 }
