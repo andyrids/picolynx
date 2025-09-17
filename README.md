@@ -1,6 +1,8 @@
 # PicoLynx - Auto-attach Raspberry Pi Devices to WSL
 
-![TUI Logo](https://raw.githubusercontent.com/andyrids/picolynx/main/docs/source/_static/img/picolynx_icon.png)
+PicoLynx is a TUI application that attaches and detaches Raspberry Pi Pico devices to any running WSL distributions, through monitoring of Windows PnP events and `usbipd-win`.
+
+![TUI Logo](docs/img/picolynx_icon_500x500.png)
 
 ```sh
 textual console -x DEBUG -x EVENT -x INFO -x SYSTEM
