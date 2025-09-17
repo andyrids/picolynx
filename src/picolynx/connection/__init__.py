@@ -1,4 +1,3 @@
-
 """"""
 # from ._serial import Device
 

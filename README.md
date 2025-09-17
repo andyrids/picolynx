@@ -1,4 +1,6 @@
-# Serpent
+# PicoLynx - Auto-attach Raspberry Pi Devices to WSL
+
+![TUI Logo](https://raw.githubusercontent.com/andyrids/picolynx/main/docs/source/_static/img/picolynx_icon.png)
 
 ```sh
 textual console -x DEBUG -x EVENT -x INFO -x SYSTEM

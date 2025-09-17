@@ -1,3 +1,4 @@
 {
-  "terminal.integrated.commandsToSkipShell": ["-workbench.action.quickOpenView", "-workbench.action.quickOpen"]
+  "terminal.integrated.commandsToSkipShell": ["-workbench.action.quickOpenView", "-workbench.action.quickOpen"],
+  "python.useEnvironmentsExtension": true
 }

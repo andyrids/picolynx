@@ -1,4 +1,5 @@
 """"""
+
 import getpass
 import logging
 import time
@@ -26,18 +27,25 @@ Binding = tuple[str, str, str]
 logging.basicConfig(level="NOTSET", handlers=(TextualHandler(),))
 _logger = logging.getLogger(__name__)
 
+
 class TUIHeader(Horizontal):
     """"""
 
     def compose(self) -> ComposeResult:
         """"""
         yield Label(f"[b]Serpent[/] [dim]v0.1.0[/]", id="header-title")
-        hostname = Text.from_markup(f"{getpass.getuser()}@{socket.gethostname()}")
+        hostname = Text.from_markup(
+            f"{getpass.getuser()}@{socket.gethostname()}"
+        )
         yield Label(hostname, id="header-hostname")
+
+
 # app-title app-user-host
+
 
 class TUI(App):
     """"""
+
     BINDINGS: ClassVar[list[Binding]] = [
         ("d", "toggle_dark", "Toggle dark mode"),
     ]
@@ -88,11 +96,11 @@ class TUI(App):
         statvfs_table.add_columns("", "")
         for label, value in self.device.statvfs().items():
             statvfs_table.add_row(f"[label]{label}", value)
-    
+
     def on_unmount(self) -> None:
         """"""
         self._exit_event.set()
-    
+
     @work(thread=True, exclusive=True)
     def update_device(self) -> None:
         """"""
@@ -109,19 +117,18 @@ class TUI(App):
 
                 pass
             self._exit_event.wait(2)
-    
+
     def repopulate_tree(
-            self,
-            directories: dict[Path, int],
-            files: dict[Path, int]
-        ) -> None:
+        self, directories: dict[Path, int], files: dict[Path, int]
+    ) -> None:
         """"""
         self.device_tree.loading = False
         self.device_tree.clear()
         tree_nodes: dict[Path, TreeNode] = {Path("/"): self.device_tree.root}
 
         for path in sorted(chain(directories, files)):
-            if path.name == "/": continue
+            if path.name == "/":
+                continue
 
             parent_node = tree_nodes[path.parent]
             if path in files:
@@ -132,7 +139,7 @@ class TUI(App):
                 tree_nodes[path] = parent_node.add(label, allow_expand=False)
         self.device_tree.root.allow_expand = False
         self.device_tree.root.label = "📁 Device"
-        self.device_tree.root.expand_all() 
+        self.device_tree.root.expand_all()
 
     def action_device_install(self) -> None:
         mip._install_package(
@@ -145,7 +152,7 @@ class TUI(App):
         )
 
         self.update_device()
-    
+
     @work(thread=True, exclusive=True)
     def install_package(self) -> None:
         """"""
@@ -161,6 +168,7 @@ class TUI(App):
                 )
         except Exception:
             _logger.exception(e)
+
 
 """
 Traceback (most recent call last):

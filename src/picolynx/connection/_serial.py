@@ -87,12 +87,11 @@ TransportMethod = Callable[Concatenate["Transport", S], R]
 
 def ensure_raw_repl(func: TransportMethod) -> TransportMethod:
     """Wraps any `Transport` method requiring an active raw REPL."""
+
     @wraps(func)
     def wrapper(
-            self: "Transport",
-            *args: S.args,
-            **kwargs: S.kwargs
-        )-> TransportMethod:
+        self: "Transport", *args: S.args, **kwargs: S.kwargs
+    ) -> TransportMethod:
         """Wraps `func` method & enters raw REPL if required."""
         self.enter_raw_repl(soft_reset=False)
         self.serial.reset_input_buffer()
@@ -103,11 +102,13 @@ def ensure_raw_repl(func: TransportMethod) -> TransportMethod:
 
 class TransportError(Exception):
     """Raised on serial-related exceptions."""
+
     pass
 
 
 class REPL(Enum):
     """REPL commands & banner enumerations."""
+
     CTRL_A = b"\x01"
     CTRL_B = b"\x02"
     CTRL_C = b"\x03"
@@ -120,10 +121,11 @@ class REPL(Enum):
     RAW_PASTE_OK = b"R\x01"
     RAW_REPL_BANNER = b"raw REPL; CTRL-B to exit\r\n"
     REBOOT_BANNER = b"soft reboot\r\n"
-    
+
 
 class USBIF(IntEnum):
     """USB-IF Raspberry Pi VID & PID enumerations."""
+
     VID = 0x2E8A
     PID = 0x0005
 
@@ -141,7 +143,8 @@ class Transport:
             name: Device name e.g. `/dev/ttyACM0` or 'COM3'.
         """
         self._serial = Serial(name, baudrate=115200, exclusive=True)
-        if os.name == "nt": self._serial.open()
+        if os.name == "nt":
+            self._serial.open()
         self.enter_raw_repl(soft_reset=True)
 
     @property
@@ -151,10 +154,10 @@ class Transport:
 
     @ensure_raw_repl
     def exec(
-            self,
-            command: bytes | str,
-            data_consumer: Callable[[bytes | bytearray], None]
-        ) -> bytes | None:
+        self,
+        command: bytes | str,
+        data_consumer: Callable[[bytes | bytearray], None],
+    ) -> bytes | None:
         """Executes commands on a connected device.
 
         Args:
@@ -180,7 +183,7 @@ class Transport:
 
         # read 2 bytes to determine if the device entered raw-paste
         if self.serial.read(2) == REPL.RAW_PASTE_OK.value:
-            # read 2 bytes - flow control 
+            # read 2 bytes - flow control
             header = self.serial.read(2)
             # window-size-increment & remaining-window-size (in bytes)
             bytes_increment = bytes_remaining = struct.unpack("<H", header)[0]
@@ -203,7 +206,7 @@ class Transport:
                             raise TransportError(f"Unexpected data - {data}")
                 if send_terminated:
                     break
-                bytes_ = command[i:min(i+bytes_remaining, len(command))]
+                bytes_ = command[i : min(i + bytes_remaining, len(command))]
                 self.serial.write(bytes_)
                 bytes_remaining -= len(bytes_)
                 i += len(bytes_)
@@ -216,7 +219,7 @@ class Transport:
             data = self.read_until(REPL.CTRL_D.value)
             if not data.endswith(REPL.CTRL_D.value):
                 raise TransportError(f"Could not complete REPL raw paste")
-            
+
             # executed command output
             data = self.read_until(REPL.CTRL_D.value, data_consumer)
             if not data.endswith(REPL.CTRL_D.value):
@@ -236,11 +239,11 @@ class Transport:
                 return command_output
 
     def read_until(
-            self,
-            expected: bytes,
-            data_consumer: Optional[Callable[[bytes | bytearray], None]] = None,
-            timeout: int = 10
-        ) -> bytearray:
+        self,
+        expected: bytes,
+        data_consumer: Optional[Callable[[bytes | bytearray], None]] = None,
+        timeout: int = 10,
+    ) -> bytearray:
         """"""
         init_time = time.monotonic()
         data = bytearray()
@@ -289,7 +292,7 @@ class Transport:
         data = self.read_until(REPL.RAW_REPL_BANNER.value)
         if not data.endswith(REPL.RAW_REPL_BANNER.value):
             raise TransportError(f"Could not enter raw REPL")
-    
+
 
 class Device:
     """A Transport wrapper for a connected device running MicroPython."""
@@ -305,7 +308,7 @@ class Device:
     @classmethod
     def _connect(cls, name: Optional[str] = None) -> Transport:
         """Factory method to find & connect to a supported device.
-        
+
         Args:
             name: Device name e.g. `/dev/ttyACM0` or 'COM3'.
 
@@ -327,11 +330,11 @@ class Device:
                 return Transport(name)
             except TransportError as e:
                 raise TransportError(f"`{name}` connection failed") from e
-        
+
         for name, comport in comports.items():
             if cls._supported(comport):
                 try:
-                   return Transport(name)
+                    return Transport(name)
                 except TransportError:
                     continue
         raise TransportError("Auto-discovery and connection failed")
@@ -358,7 +361,7 @@ class Device:
             else:
                 directories[Path(full_path)] = size
         return directories, files
-    
+
     def rmdir(self, path: Path | str) -> bool:
         """Removes the directory `path` on the device.
 
@@ -404,7 +407,7 @@ class Device:
 
     def tree(self) -> Tree:
         """Creates a directory tree for the device.
-        
+
         Returns:
             A `Tree` object representing device content.
         """
@@ -415,7 +418,8 @@ class Device:
         tree_nodes: dict[Path, TreeNode] = {Path("/"): tree.root}
 
         for path in paths:
-            if path.name == "/": continue
+            if path.name == "/":
+                continue
 
             parent_node = tree_nodes[path.parent]
             if path in files:
@@ -425,10 +429,10 @@ class Device:
                 label = f"📁 {path.name}"
                 tree_nodes[path] = parent_node.add(label, allow_expand=False)
 
-        tree.root.expand_all() 
+        tree.root.expand_all()
         tree.guide_depth = 3
         return tree
-    
+
     def uname(self) -> dict[str, str]:
         """Returns information `dict` about the device and OS.
 
@@ -439,13 +443,13 @@ class Device:
         buffer, data_consumer = buffer_factory()
         self.transport.exec(DEVICE_UNAME, data_consumer=data_consumer)
         return literal_eval(buffer.decode())
-    
+
     def information(self) -> Table:
         info_table = Table(
             show_header=False,
             box=None,
             title="Device Information",
-            title_style=Style(color="#bbc8e8", bold=True)
+            title_style=Style(color="#bbc8e8", bold=True),
         )
 
         info_table.add_column()
@@ -453,7 +457,7 @@ class Device:
         for label, value in self.uname():
             info_table.add_row(f"[label]{label.capitalize()}", value)
 
-        return info_table 
+        return info_table
 
 
 def buffer_factory() -> tuple[bytearray, Callable[[bytes | bytearray], None]]:
@@ -471,5 +475,3 @@ def buffer_factory() -> tuple[bytearray, Callable[[bytes | bytearray], None]]:
         buffer.extend(data.replace(b"\x04", b""))
 
     return buffer, data_consumer
-
-
