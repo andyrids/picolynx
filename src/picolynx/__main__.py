@@ -25,6 +25,8 @@ import win32evtlog
 import win32evtlogutil
 import winerror
 from picolynx import __version__
+from picolynx.exceptions import EnablePnPAuditError, USBIPDError, WSLError
+from picolynx.utility import is_administrator, is_pnp_audit, is_pnp_event
 from pywintypes import error as PyWinError
 from rich.pretty import pprint
 from rich.text import Text
@@ -37,7 +39,6 @@ from textual.logging import TextualHandler
 from textual.message import Message
 from textual.theme import BUILTIN_THEMES, Theme
 from textual.widgets import DataTable, Label, Checkbox
-from textual.widgets.data_table import RowKey
 from textual._path import CSSPathType
 from win32ctypes.pywin32 import pywintypes
 
@@ -45,7 +46,7 @@ if TYPE_CHECKING:
     from _win32typing import PyEventLogRecord  # pyright: ignore[reportMissingModuleSource]
 
 logging.basicConfig(level="NOTSET", handlers=(TextualHandler(),))
-_logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 BACKWARDS_SEQUENTIAL_READ: int = (
     win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
@@ -74,24 +75,6 @@ GALAXY_THEME = Theme(
         "footer-background": "transparent",
     },
 )
-
-
-class EnablePnPAuditError(Exception):
-    """"""
-
-    pass
-
-
-class USBIPDError(Exception):
-    """"""
-
-    pass
-
-
-class WSLError(Exception):
-    """"""
-
-    pass
 
 
 class USBIF(IntEnum):
@@ -199,7 +182,7 @@ class TUI(App):
     SUB_TITLE: str | None = "SUBTITLE"
 
     def __init__(self) -> None:
-        """_summary_
+        """Initialises TUI App
 
         Args:
             connection: _description_
@@ -320,7 +303,7 @@ class TUI(App):
                 if result == win32con.WAIT_OBJECT_0:
                     time.sleep(0.5)
 
-                    _logger.info(f"Fetching events @ record #{record_offset}")
+                    log.info(f"Fetching events @ record #{record_offset}")
 
                     event_list: list[PyEventLogRecord] = []
                     while True:
@@ -340,11 +323,11 @@ class TUI(App):
                             if e.args[0] == winerror.ERROR_INVALID_PARAMETER:
                                 break
                             else:
-                                _logger.error(
+                                log.error(
                                     "Unexpected `Exception`", exc_info=True
                                 )
                                 raise e
-                    _logger.info(f"Fetched {len(event_list)} events")
+                    log.info(f"Fetched {len(event_list)} events")
                     if not event_list:
                         win32event.ResetEvent(self._evt_handle)
                         continue
@@ -364,7 +347,7 @@ class TUI(App):
                                 event.StringInserts[5],
                             )
                         else:
-                            _logger.info(
+                            log.info(
                                 f"PnP Event (#{event.RecordNumber}) not added"
                             )
                     self.table_events.sort("TIME", reverse=True)
@@ -372,7 +355,7 @@ class TUI(App):
 
                 win32event.ResetEvent(self._evt_handle)
         except Exception as e:
-            _logger.exception(f"Unexpected error in `monitor_events`: {e}")
+            log.exception(f"Unexpected error in `monitor_events`: {e}")
         finally:
             win32evtlog.CloseEventLog(self._log_handle)
 
@@ -452,10 +435,10 @@ class TUI(App):
         with device_lock:
             if not message.shared:
                 usbipd_bind(busid)
-                _logger.info(f"Registered device @ BUSID {busid}")
+                log.info(f"Registered device @ BUSID {busid}")
             if not message.attached and self.running_distros:
                 usbipd_attach(busid)
-                _logger.info(f"Attached device @ BUSID {busid}")
+                log.info(f"Attached device @ BUSID {busid}")
 
 
     @on(USBIPDDetachDevice)
@@ -480,7 +463,7 @@ class TUI(App):
         with device_lock:
             if message.attached:
                 usbipd_detach(busid)
-                _logger.info(f"Detached device @ BUSID {busid}")
+                log.info(f"Detached device @ BUSID {busid}")
 
     def parse_device_state(
             self, device_state: USBIPDState
@@ -551,23 +534,6 @@ class TUI(App):
             self.table_distros.add_row(*[name, state, version, bool(default)])
 
 
-    def update_table(
-            self,
-            table: DataTable,
-            rows: list[list[Text]],
-            clear: bool = False
-        ) -> None:
-        if clear:
-            table.clear()
-        table.add_rows(rows)
-
-
-
-def is_administrator() -> bool:
-    """Indicates whether shell user is administrator."""
-    return bool(ctypes.windll.shell32.IsUserAnAdmin())
-
-
 def run_as_administrator() -> int:
     """"""
     return ctypes.windll.shell32.ShellExecuteW(
@@ -578,49 +544,6 @@ def run_as_administrator() -> int:
         None,
         win32con.SW_SHOWNORMAL,
     )
-
-
-def is_pnp_audit() -> bool:
-    """Indicates `auditpol` PnP event auditing status.
-
-    Raises:
-        EnablePnPAuditError: On `auditpol` process error.
-
-    Returns:
-        True if policy inclusion setting is success & failure, else False.
-    """
-    pnp_status = subprocess.Popen(
-        ["auditpol", "/get", "/subcategory:Plug and Play Events", "/r"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        shell=False,
-    )
-
-    try:
-        stdout, stderr = pnp_status.communicate(timeout=5)
-        if stderr:
-            raise EnablePnPAuditError(stderr)
-    except subprocess.TimeoutExpired as e:
-        pnp_status.kill()
-        raise EnablePnPAuditError from e
-
-    if pnp_status.returncode == 0 and stdout:
-        policy = next(csv.DictReader(stdout.lower().strip().splitlines()))
-        return policy.get("inclusion setting") == "success and failure"
-    return False
-
-
-def is_pnp_event(event: "PyEventLogRecord") -> bool:
-    """Indicates if an event is a PnP event.
-
-    Args:
-        event: An event log record.
-
-    Returns:
-        True if `event.EventID` is 6416 (PnP), else False.
-    """
-    return winerror.HRESULT_CODE(event.EventID) == 6416
 
 
 def enable_pnp_audit() -> None:
@@ -671,7 +594,7 @@ def usbipd_attach(busid: str) -> None:
             shell=False,
         )
     except FileNotFoundError as e:
-        _logger.fatal("`usbipd` is not installed", exc_info=True)
+        log.fatal("`usbipd` is not installed", exc_info=True)
         raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
 
     try:
@@ -701,12 +624,12 @@ def usbipd_bind(busid: str) -> None:
             shell=False,
         )
     except FileNotFoundError as e:
-        _logger.fatal("`usbipd` is not installed", exc_info=True)
+        log.fatal("`usbipd` is not installed", exc_info=True)
         raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
 
     try:
         stdout, stderr = usbipd_attach.communicate(timeout=5)
-        _logger.info(stdout or stderr)
+        log.info(stdout or stderr)
         if usbipd_attach.returncode:
             raise USBIPDError(stdout or stderr)
     except subprocess.TimeoutExpired as e:
@@ -734,13 +657,13 @@ def usbipd_detach(busid: Optional[str] = None) -> None:
             shell=False,
         )
     except FileNotFoundError as e:
-        _logger.fatal("`usbipd` is not installed", exc_info=True)
+        log.fatal("`usbipd` is not installed", exc_info=True)
         raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
 
     try:
         stdout, stderr = usbipd_detach.communicate(timeout=5)
         if (msg := stdout or stderr):
-            _logger.info(msg)
+            log.info(msg)
         if usbipd_detach.returncode:
             raise USBIPDError(msg)
     except subprocess.TimeoutExpired as e:
@@ -766,7 +689,7 @@ def usbipd_state() -> USBIPDState:
             shell=False,
         )
     except FileNotFoundError as e:
-        _logger.fatal("`usbipd` is not installed", exc_info=True)
+        log.fatal("`usbipd` is not installed", exc_info=True)
         raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
 
     try:
@@ -815,7 +738,6 @@ def wsl_distros() -> csv.DictReader[str]:
 
 if __name__ == "__main__":
     # Windows event 6416 logs are located in the Security log
-    # C:\Windows\System32\winevt\Logs in the .evtx format
 
     if not is_administrator():
         sys.exit(0) if run_as_administrator() > 32 else sys.exit(1)
@@ -828,7 +750,7 @@ if __name__ == "__main__":
         app.run()
         pass
     except KeyboardInterrupt as e:
-        _logger.info("Caught `KeyboardInterrupt` - TUI shutdown")
+        log.info("Caught `KeyboardInterrupt` - TUI shutdown")
     finally:
-        _logger.info("TUI shutdown - detaching connected devices")
+        log.info("TUI shutdown - detaching connected devices")
         usbipd_detach()
