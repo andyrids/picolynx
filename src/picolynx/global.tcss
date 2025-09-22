@@ -41,6 +41,7 @@ Container, ItemGrid {
 # Generic styling for all DataTable widgets
 DataTable {
     background: $background;
+    height: 100%;
     margin: 0 0;
     min-height: 5;
     overflow-y: scroll;
@@ -82,10 +83,10 @@ TUIHeader {
 # Main TUI container for all layout widgets
 #container-main {
     border: none;
-    grid-columns: auto 1fr 1fr 1fr 1fr;
+    grid-columns: 1fr 1fr;
     grid-gutter: 1;
-    grid-rows: auto;
-    grid-size: 5 3;
+    grid-rows: 1fr;
+    grid-size: 2 1;
     layout: grid;
     margin: 0 1;
     overflow-y: scroll;
@@ -93,38 +94,24 @@ TUIHeader {
     scrollbar-size-vertical: 0;
 }
 
-# Bottom-left connected devices container
+# top-left connected devices container
 #container-devices {
-    column-span: 3;
+    column-span: 1;
     height: 100%;
-    row-span: 1;
-}
-
-# Middle-left WSL distro container
-#container-distros {
-    column-span: 3;
+    row-span: 2;
 }
 
 # Top-right PnP events container
 #container-events {
-    column-span: 2;
-    row-span: 5;
+    column-span: 1;
+    row-span: 1;
 }
 
 # Set border & border-title styling on focus-within
-#container-devices, #container-distros, #container-events, #container-filters {
+#container-devices, #container-events {
     &:focus-within {
         border: round $accent 100%;
         border-title-color: $foreground;
         border-title-style: bold;
     }
-}
-
-# Top-left checkbox container
-#container-filters {
-    align: center middle;
-    column-span: 3;
-    grid-gutter: 1;
-    grid-size: 3;
-    padding: 0 1;
 }

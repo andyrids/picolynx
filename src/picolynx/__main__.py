@@ -4,7 +4,6 @@ from ast import literal_eval
 import csv
 import ctypes
 import json
-import logging
 import pathlib
 import re
 import subprocess
@@ -15,10 +14,12 @@ from dataclasses import dataclass
 from enum import IntEnum
 from functools import lru_cache
 from getpass import getuser
+from logging import basicConfig, getLogger
 from socket import gethostname
 from types import MappingProxyType
 from typing import ClassVar, Optional, TypedDict, TYPE_CHECKING
 
+from duckdb import description
 import win32con
 import win32event
 import win32evtlog
@@ -45,8 +46,10 @@ from win32ctypes.pywin32 import pywintypes
 if TYPE_CHECKING:
     from _win32typing import PyEventLogRecord  # pyright: ignore[reportMissingModuleSource]
 
-logging.basicConfig(level="NOTSET", handlers=(TextualHandler(),))
-log = logging.getLogger(__name__)
+
+LOG_FMT = "%(levelname)-8s | %(funcName)s:%(lineno)d - %(message)s"
+basicConfig(level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),))
+log = getLogger(__name__)
 
 BACKWARDS_SEQUENTIAL_READ: int = (
     win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
@@ -78,7 +81,7 @@ GALAXY_THEME = Theme(
 
 
 class USBIF(IntEnum):
-    """USB-IF Raspberry Pi VID & PID enumerations."""
+    """USB-IF VID & PID enumerations."""
 
     PID_PICO_BOOT = 0x0003
     PID_PICO_PROBE = 0x0004
@@ -93,17 +96,6 @@ class USBIF(IntEnum):
     def __str__(self) -> str:
         """Formats a value as a zero-padded, 4-digit hex string."""
         return f"{self.value:04X}"
-
-
-class LogLevel(IntEnum):
-    """Event log level enumerations."""
-
-    UNDEFINED = 0
-    CRITICAL = 1
-    ERROR = 2
-    WARNING = 3
-    INFORMATION = 4
-    VERBOSE = 5
 
 
 class EventType(IntEnum):
@@ -140,23 +132,12 @@ class USBIPDAttachDevice(Message):
 
     device: USBIPDDevice
 
-    def __post_init__(self) -> None:
-        """"""
-        super().__post_init__()
-        self.shared = bool(self.device["PersistedGuid"]) 
-        self.attached = bool(self.device["StubInstanceId"])
 
 @dataclass
 class USBIPDDetachDevice(Message):
     """Device information message for `usbipd detach` command."""
 
     device: USBIPDDevice
-
-    def __post_init__(self) -> None:
-        """"""
-        super().__post_init__()
-        self.shared = bool(self.device["PersistedGuid"])
-        self.attached = bool(self.device["StubInstanceId"])
 
 
 class TUIHeader(Horizontal):
@@ -182,14 +163,9 @@ class TUI(App):
     SUB_TITLE: str | None = "SUBTITLE"
 
     def __init__(self) -> None:
-        """Initialises TUI App
-
-        Args:
-            connection: _description_
-        """
+        """Initialises TUI App."""
         super().__init__()
-        self._device_filters: set[str] = {"2E8A:000B","2E8A:0005","2E8A:000A"}
-        self._running_distros: set[str] = set()
+        self._connected_devices: set[str] = set()
         self._exit_event: threading.Event = threading.Event()
         self._device_locks: dict[str, threading.Lock] = dict()
         self._thread_lock: threading.Lock = threading.Lock()
@@ -200,99 +176,72 @@ class TUI(App):
     @property
     @lru_cache(1)
     def container_devices(self) -> Container:
+        """Property for connected devices `Container` widget."""
         return self.query_one("#container-devices", Container)
-    
-    @property
-    @lru_cache(1)
-    def container_distros(self) -> Container:
-        return self.query_one("#container-distros", Container)
 
     @property
     @lru_cache(1)
     def container_events(self) -> Container:
+        """Property for Windows events `Container` widget."""
         return self.query_one("#container-events", Container)
 
     @property
     @lru_cache(1)
-    def container_filters(self) -> ItemGrid:
-        return self.query_one("#container-filters", ItemGrid)
-
-    @property
-    @lru_cache(1)
     def table_devices(self) -> DataTable:
+        """Property for connected devices `DataTable` widget."""
         return self.query_one("#table-devices", DataTable)
 
     @property
     @lru_cache(1)
-    def table_distros(self) -> DataTable:
-        return self.query_one("#table-distros", DataTable)
-
-    @property
-    @lru_cache(1)
     def table_events(self) -> DataTable:
+        """Property for Windows events `DataTable` widget."""
         return self.query_one("#table-events", DataTable)
-
-    @property
-    def device_filters(self) -> set[str]:
-        return self._device_filters
     
     @property
     def device_locks(self) -> dict[str, threading.Lock]:
+        """Property for device threading lock."""
         return self._device_locks
 
     @property
     def exit_event(self) -> threading.Event:
+        """Property for threading exit `Event`."""
         return self._exit_event
 
     @property
     def thread_lock(self) -> threading.Lock:
+        """Property for threading lock."""
         return self._thread_lock
-    
-    @property
-    def running_distros(self) -> set[str]:
-        return self._running_distros
 
     def compose(self) -> ComposeResult:
         yield TUIHeader()
         with Container(id="container-main"):
-            with ItemGrid(id="container-filters"):
-                yield Checkbox(
-                    "CircuitPython", value=True, name="2E8A:000B", compact=True
+            with Container(id="container-devices"):
+                yield DataTable(
+                    show_header=True, cursor_type="none", id="table-devices"
                 )
-                yield Checkbox(
-                    "MicroPython", value=True, name="2E8A:0005", compact=True
-                )
-                yield Checkbox(
-                    "Pico SDK", value=True, name="2E8A:000A", compact=True
-                )
-
             with Container(id="container-events"):
                 yield DataTable(
                     show_header=True, cursor_type="none", id="table-events", zebra_stripes=True
                 )
 
-            with Container(id="container-distros"):
-                yield DataTable(
-                    show_header=True, cursor_type="none", id="table-distros"
-                )
-
-            with Container(id="container-devices"):
-                yield DataTable(
-                    show_header=True, cursor_type="none", id="table-devices"
-                )
+    @work(thread=True)
+    def monitor_devices(self) -> None:
+        """"""
+        while True:
+            time.sleep(3)
+            self.call_from_thread(self.update_table_devices)
 
     @work(thread=True)
     def monitor_events(self) -> None:
         """"""
         record_offset = 0
         try:
-            events = win32evtlog.ReadEventLog(
-                self._log_handle, BACKWARDS_SEQUENTIAL_READ, 0
-            )
-
-            if events:
+            if win32evtlog.GetNumberOfEventLogRecords(self._log_handle):
+                most_recent, *_ = win32evtlog.ReadEventLog(
+                    self._log_handle, BACKWARDS_SEQUENTIAL_READ, 0
+                )
                 # start reading from the record AFTER the most recent
-                record_offset = events[0].RecordNumber + 1
+                record_offset = most_recent.RecordNumber + 1
 
             while not self.exit_event.is_set():
                 result = win32event.WaitForSingleObject(self._evt_handle, 5000)
@@ -305,7 +254,7 @@ class TUI(App):
 
                     log.info(f"Fetching events @ record #{record_offset}")
 
-                    event_list: list[PyEventLogRecord] = []
+                    events: list[PyEventLogRecord] = []
                     while True:
                         try:
                             new_events = win32evtlog.ReadEventLog(
@@ -316,8 +265,8 @@ class TUI(App):
                             if not new_events:
                                 break
 
-                            event_list.extend(new_events)
-                            record_offset = event_list[-1].RecordNumber + 1
+                            events.extend(new_events)
+                            record_offset = events[-1].RecordNumber + 1
                         except PyWinError as e:
                             # record_offset > `PyEventLogRecord.RecordNumber`
                             if e.args[0] == winerror.ERROR_INVALID_PARAMETER:
@@ -327,13 +276,13 @@ class TUI(App):
                                     "Unexpected `Exception`", exc_info=True
                                 )
                                 raise e
-                    log.info(f"Fetched {len(event_list)} events")
-                    if not event_list:
+                    log.info(f"Fetched {len(events)} events")
+                    if not events:
                         win32event.ResetEvent(self._evt_handle)
                         continue
 
                     # PnP filter (`PyEventLogRecord.EventID` is 6416)
-                    for event in filter(is_pnp_event, event_list):
+                    for event in [e for e in events if is_pnp_event(e)]:
                         vid_pid = re.search(
                             USBIPD_VID_PID_PTN, event.StringInserts[4].upper()
                         )
@@ -342,6 +291,7 @@ class TUI(App):
 
                         if VID and PID:
                             self.table_events.add_row(
+                                f"{event.RecordNumber}",
                                 f"{event.TimeGenerated:%H:%M:%S}",
                                 f"{VID}:{PID}",
                                 event.StringInserts[5],
@@ -359,31 +309,13 @@ class TUI(App):
         finally:
             win32evtlog.CloseEventLog(self._log_handle)
 
-    def on_checkbox_changed(self, message: Checkbox.Changed) -> None:
-        """Handles `Checkbox` widget value change events.
-
-        Args:
-            message: Event message object for checkbox value change.
-        """
-        checkbox = message.checkbox
-        if checkbox.name is None:
-            raise ValueError(f"Unexpected `checkbox.name` - {checkbox.name}")
-        if checkbox.value:
-            self.device_filters.add(checkbox.name)
-        else:
-            self.device_filters.remove(checkbox.name)
-        self.update_table_devices()
-
-
     def on_mount(self) -> None:
         """Handles Textual App `mount` event."""
         self.register_theme(GALAXY_THEME)
         self.app.theme = "galaxy"
 
         # set container widget border titles
-        self.container_filters.border_title = "Filters"
         self.container_devices.border_title = "Connected Devices"
-        self.container_distros.border_title = "WSL Distributions"
         self.container_events.border_title = "Windows PnP Events"
 
         # setup `DataTable` widget for connected devices
@@ -392,22 +324,14 @@ class TUI(App):
         self.table_devices.add_column("ATTACHED", key="ATTACHED")
         self.update_table_devices()
 
-        # setup `DataTable` widget for currently installed WSL distros
-        installed_distros = wsl_distros()
-        if installed_distros.fieldnames:
-            columns = [*installed_distros.fieldnames, "DEFAULT"]
-        else:
-            columns = ["NAME", "STATE", "VERSION", "DEFAULT"]
-
-        self.table_distros.add_columns(*columns)
-        self.update_table_distros()
-        # for row in installed_distros:
-        #     self.table_distros.add_row(*[*row.values(), "*" in row["NAME"]])
-
         # setup `DataTable` widget for Windows Security event log
+        self.table_events.add_column("#", key="#")
         self.table_events.add_column("TIME", key="TIME")
         self.table_events.add_columns("VID:PID", "DESCRIPTION")
+
+        # monitor for connected device changes & PnP events
         self.monitor_events()
+        self.monitor_devices()
 
     def on_unmount(self) -> None:
         """Handles Textual App `unmount` event."""
@@ -415,15 +339,16 @@ class TUI(App):
     
     @on(USBIPDAttachDevice)
     def handle_attach_device(self, message: USBIPDAttachDevice) -> None:
-        """"""
-        self.attach_device_worker(message)
+        """forwards `USBIPDAttachDevice` messages to a dedicated worker."""
+        if not message.device["StubInstanceId"]:
+            self.attach_device_worker(message)
 
     @work(thread=True)
     def attach_device_worker(self, message: USBIPDAttachDevice) -> None:
         """Handles blocking `usbipd_bind` & `usbipd_attach` calls.
 
         Args:
-            message: _description_
+            message: Device information message for `usbipd attach` command.
         """
         busid = message.device["BusId"]
         # mitigate `device_locks` dict race condition
@@ -431,27 +356,42 @@ class TUI(App):
             # dict CRUD is now atomic
             device_lock = self.device_locks.setdefault(busid, threading.Lock())
 
+        # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
+        if not device_lock.acquire(blocking=False):
+            log.info(f"Attachment of device @ BUSID {busid} in progress")
+            # return early if lock is already held
+            return
+
         # mitigate `usbipd_bind` & `usbipd_attach` race conditions
-        with device_lock:
-            if not message.shared:
+        try:
+            devices = usbipd_state()["Devices"]
+            device = next((d for d in devices if d["BusId"] == busid), None)
+
+            if not device:
+                log.warning(f"Missing device @ BUSID {busid}")
+                return
+            
+            if not device["PersistedGuid"]:
                 usbipd_bind(busid)
                 log.info(f"Registered device @ BUSID {busid}")
-            if not message.attached and self.running_distros:
+            
+            if not device["StubInstanceId"] and any(active_wsl_distros()):
                 usbipd_attach(busid)
                 log.info(f"Attached device @ BUSID {busid}")
-
+        finally:
+            device_lock.release()
 
     @on(USBIPDDetachDevice)
     def handle_detach_device(self, message: USBIPDDetachDevice) -> None:
-        """"""
+        """forwards `USBIPDDetachDevice` messages to a dedicated worker."""
         self.detach_device_worker(message)
     
     @work(thread=True)
-    def detach_device_worker(self, message: USBIPDAttachDevice) -> None:
+    def detach_device_worker(self, message: USBIPDDetachDevice) -> None:
         """Handles blocking `usbipd_detach` calls.
 
         Args:
-            message: _description_
+            message: Device information message for `usbipd attach` command.
         """
         busid = message.device["BusId"]
         # mitigate `device_locks` dict race condition
@@ -459,27 +399,42 @@ class TUI(App):
             # dict CRUD is now atomic
             device_lock = self.device_locks.setdefault(busid, threading.Lock())
 
-        # mitigate `usbipd_detach` race condition
-        with device_lock:
-            if message.attached:
+        # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
+        if not device_lock.acquire(blocking=False):
+            log.info(f"Detachment of device @ BUSID {busid} in progress")
+            # return early if lock is already held
+            return
+
+        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
+        try:
+            devices = usbipd_state()["Devices"]
+            device = next((d for d in devices if d["BusId"] == busid), None)
+
+            # device already detached/disconnected
+            if not device:
+                return
+
+            if device["StubInstanceId"]:
                 usbipd_detach(busid)
                 log.info(f"Detached device @ BUSID {busid}")
+        finally:
+            device_lock.release()
 
     def parse_device_state(
-            self, device_state: USBIPDState
+            self, state: USBIPDState
         ) -> list[list[Text]]:
         """_summary_
 
         Args:
-            device_state: _description_
+            state: _description_
 
         Returns:
             _description_
         """
         parsed_devices = []
 
-        for device in device_state["Devices"]:
-            if device["BusId"] is None:
+        for device in state["Devices"]:
+            if (busid := device["BusId"]) is None:
                 continue
             vid_pid = re.search(USBIPD_VID_PID_PTN, device["InstanceId"])
             VID = vid_pid.group("VID") if vid_pid else "ERROR"
@@ -488,18 +443,18 @@ class TUI(App):
 
             style = ""
             if VID == str(USBIF.VID_RPI):
-                if VID_PID in self.device_filters:
-                    style += "#FF69B4 italic bold"
-                    self.post_message(USBIPDAttachDevice(device))
-                else:
-                    style += "#FF69B4 italic bold strike"
-                    self.post_message(USBIPDDetachDevice(device))
+                style += "#FF69B4 italic bold"
+                self.post_message(USBIPDAttachDevice(device))
+
+            # truncate description text to a max width of 24 characters
+            description = Text(device["Description"], style=style)
+            description.truncate(max_width=24, overflow="ellipsis")
 
             parsed_devices.append(
                 [
-                    Text(device["BusId"], style=style),
+                    Text(busid, style=style),
                     Text(VID_PID, style=style),
-                    Text(device["Description"], style=style),
+                    description,
                     Text(str(bool(device["PersistedGuid"])), style=style),
                     Text(str(bool(device["StubInstanceId"])), style=style),
                 ]
@@ -509,29 +464,15 @@ class TUI(App):
 
     def update_table_devices(self) -> None:
         """Updates connected USB device information `DataTable`."""
-        device_state = usbipd_state()
-        new_rows = self.parse_device_state(device_state)
+        new_rows = self.parse_device_state(usbipd_state())
         self.table_devices.clear()
-        row_keys = self.table_devices.add_rows(new_rows)
+        self.table_devices.add_rows(new_rows)
         self.table_devices.sort(
             "SHARED",
             "ATTACHED",
-            key=lambda x: [i.plain for i in x],
+            key=lambda x: [getattr(i, "plain", i) for i in x],
             reverse=True,
         )
-    
-    def update_table_distros(self) -> None:
-        """Updates installed WSL distro status `DataTable`."""
-        distros = wsl_distros()
-        for row in distros:
-            name, state, version = row.values()
-            default, name = tuple(*re.findall(r"(\*)?\s?([A-Za-z]+)", name))
-
-            if state.lower() == "running":
-                self.running_distros.add(name)
-            else:
-                self.running_distros.discard(name)
-            self.table_distros.add_row(*[name, state, version, bool(default)])
 
 
 def run_as_administrator() -> int:
@@ -702,10 +643,14 @@ def usbipd_state() -> USBIPDState:
     return json.loads(stdout)
 
 
-def wsl_distros() -> csv.DictReader[str]:
-    """"""
+def active_wsl_distros() -> tuple[str, ...]:
+    """Lists running WSL distributions.
+
+    Returns:
+        A list of running WSL distributions.
+    """
     distros = subprocess.Popen(
-        ["wsl", "--list", "--verbose"],
+        ["wsl", "--list", "--running", "--quiet"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -722,12 +667,7 @@ def wsl_distros() -> csv.DictReader[str]:
         distros.kill()
         raise WSLError from e
 
-    return csv.DictReader(
-        [
-            re.sub(r"(?<!\*)\s+", ",", i.strip())
-            for i in stdout.strip().splitlines()
-        ]
-    )
+    return tuple(i for i in stdout.strip().splitlines())
 
 # def _windows_kill_process(pid):
 #     import ctypes
