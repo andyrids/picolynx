@@ -4,13 +4,11 @@ from ast import literal_eval
 import asyncio
 import contextvars
 import ctypes
-import gc
 import json
 import re
 import subprocess
 import threading
 import sys
-import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -28,21 +26,24 @@ import win32evtlog
 import win32evtlogutil
 import win32gui
 import winerror
+
 from picolynx import __version__
-from picolynx.exceptions import EnablePnPAuditError, USBIPDError, WSLError
-from picolynx.utility import is_administrator, is_pnp_audit, is_pnp_event
+from picolynx.exceptions import USBIPDError, WSLError
+from picolynx.utility import is_administrator
+from picolynx.structures import *
+from picolynx.themes import GALAXY_THEME
+
 from pywintypes import error as PyWinError
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
-from textual.color import Color
 from textual.containers import Container, Horizontal
 from textual.logging import TextualHandler
 from textual.message import Message
 from textual.reactive import reactive
-from textual.theme import BUILTIN_THEMES, Theme
-from textual.widgets import DataTable, Label, Checkbox
+
+from textual.widgets import DataTable, Label
 from textual._path import CSSPathType
 from win32con import WM_DEVICECHANGE
 from win32ctypes.pywin32 import pywintypes
@@ -57,46 +58,8 @@ LOG_FMT = "%(levelname)-8s | %(funcName)s:%(lineno)d - %(message)s"
 basicConfig(level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),))
 _log = getLogger(__name__)
 
-BACKWARDS_SEQUENTIAL_READ: int = (
-    win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
-)
-
-FORWARDS_SEEK_READ: int = (
-    win32evtlog.EVENTLOG_FORWARDS_READ | win32evtlog.EVENTLOG_SEEK_READ
-)
-
 USBIPD_VID_PID_PTN = "VID_(?P<VID>[A-Z0-9]{4})&PID_(?P<PID>[A-Z0-9]{4})"
 
-GALAXY_THEME = Theme(
-    name="galaxy",
-    primary="#C45AFF",
-    secondary="#A684E8",
-    warning="#FFD700",
-    error="#FF4500",
-    success="#00FA9A",
-    accent="#FF69B4",
-    background="#0F0F1F",
-    surface="#1E1E3F",
-    panel="#2D2B55",
-    dark=True,
-    variables={
-        "input-cursor-background": "#C45AFF",
-        "footer-background": "transparent",
-    },
-)
-
-
-class DBT(IntEnum):
-    """Device Broadcast Type enumerations."""
-
-    DEVNODES_CHANGED = 0x0007
-    DEVICE_ARRIVAL = 0x8000
-    DEVICE_QUERY_REMOVE = 0x8001
-    DEVICE_QUERY_REMOVE_FAILED = 0x8002
-    DEVICE_REMOVE_PENDING = 0x8003
-    DEVICE_REMOVE_COMPLETE = 0x8004
-    DEVICE_TYPE_SPECIFIC = 0x8005
-    
 
 class USBIF(IntEnum):
     """USB-IF VID & PID enumerations."""
@@ -148,11 +111,18 @@ class USBIPDDetachDevice(Message):
     device: USBIPDDevice
 
 
+@dataclass
+class WMDeviceChange(Message):
+    """`WM_DEVICECHANGE` message for refreshing connected device state."""
+
+    broadcast_type: int
+
+
 # @dataclass(frozen=True)
 @dataclass
 class AppState:
     """Stores the entire application state."""
-    connected_devices: tuple[USBIPDDevice, ...] = field(default_factory=tuple)
+    connected_devices: USBIPDState = field(default_factory=lambda: {"Devices": []})
 
 
 APP_STATE: ContextVar[AppState] = ContextVar("app_state", default=AppState())
@@ -180,7 +150,6 @@ class DeviceNotifier:
         self._loop = loop
         self._callback = callback
         self._thread = threading.Thread(target=self.message_pump, daemon=True)
-        _log.info(f"{threading.current_thread().name=}, {threading.current_thread().native_id=}")
     
     @property
     def loop(self) -> asyncio.AbstractEventLoop:
@@ -203,7 +172,6 @@ class DeviceNotifier:
 
     def message_pump(self) -> None:
         """Runs a message loop for `WM_DEVICECHANGE` messages."""
-        _log.info(f"{threading.current_thread().name=}, {threading.current_thread().native_id=}")
 
         wc = win32gui.WNDCLASS()
         hinst = win32api.GetModuleHandle(None)
@@ -229,13 +197,13 @@ class DeviceNotifier:
 
         # infinite, blocking loop
         win32gui.PumpMessages()
-    
+
     def process_message(
             self,
             hwnd: int,
-            msg: int,
-            wparam: "ReadableBuffer | float | None",
-            lparam: "ReadableBuffer | float | None"
+            umsg: int,
+            wparam: int,
+            lparam: int
         ) -> int:
         """Processes `WM_DEVICECHANGE` messages.
 
@@ -244,27 +212,51 @@ class DeviceNotifier:
 
         Args:
             hwnd: A handle to the window class.
-            msg: A `WM_DEVICECHANGE` message.
+
+            umsg: The `WM_DEVICECHANGE` identifier.
+
             wparam: The device-change event.
-            lparam: Event-specific data.
+
+            lparam: A pointer to a structure containing event-specific data.
 
         Returns:
             Message processing result, which depends on the message.
         """
+        _log.info(f"`WM_DEVICECHANGE` - {wparam=:04X}, {lparam=:04X}")
 
-        _log.info(f"`WM_DEVICECHANGE` ({msg}) message received")
+        # avoid reading from a NULL pointer
+        if lparam:
+            hdr = DEV_BROADCAST_HDR.from_address(lparam)
+            match hdr.dbch_devicetype:
+                case DBCDeviceType.DBT_DEVTYP_VOLUME:
+                    _log.info(f"Device type is `DBT_DEVTYP_VOLUME`")
+                case DBCDeviceType.DBT_DEVTYP_PORT:
+                    _log.info(f"Device type is `DBT_DEVTYP_PORT`")
+                    interface = DEV_BROADCAST_PORT_W.from_address(lparam)
+                    address = ctypes.addressof(interface) + DEV_BROADCAST_PORT_W.dbcp_name.offset
+                    device_name = ctypes.wstring_at(address)
+                    _log.info(f"Device ID is {device_name}")
+                case DBCDeviceType.DBT_DEVTYP_DEVICEINTERFACE:
+                    _log.info(f"Device type is `DBT_DEVTYP_DEVICEINTERFACE`")
+                    interface = DEV_BROADCAST_DEVICEINTERFACE_W.from_address(lparam)
+                    name_buffer = (ctypes.c_wchar * len(interface.dbcc_name))
+                    deviceid = name_buffer.from_address(ctypes.addressof(interface.dbcc_name)).value
+                    _log.info(f"Device ID is {deviceid}")
+                case _:
+                    _log.info(f"Unhandled `dbch_devicetype` - {hdr.dbch_devicetype}")
+
         match wparam:
-            case DBT.DEVNODES_CHANGED:
+            case DBCEvent.DBT_DEVNODES_CHANGED:
                 _log.info(f"`DBT_DEVNODES_CHANGED` ({wparam:04X})")
-            case DBT.DEVICE_ARRIVAL:
+            case DBCEvent.DBT_DEVICEARRIVAL:
                 _log.info(f"`DBT_DEVICEARRIVAL` ({wparam:04X})")
                 self.loop.call_soon_threadsafe(self.callback, wparam)
-            case DBT.DEVICE_REMOVE_COMPLETE:
+            case DBCEvent.DBT_DEVICEREMOVECOMPLETE:
                 _log.info(f"`DBT_DEVICEREMOVECOMPLETE` ({wparam:04X})")
                 self.loop.call_soon_threadsafe(self.callback, wparam)
             case _:
                 _log.warning(f"Unexpected device-change event ({wparam:04X})")
-        return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+        return win32gui.DefWindowProc(hwnd, umsg, wparam, lparam)
 
 
 class TUIHeader(Horizontal):
@@ -288,8 +280,6 @@ class TUI(App):
     TITLE: str | None = "TITLE"
 
     SUB_TITLE: str | None = "SUBTITLE"
-
-    current_state: reactive[AppState] = reactive(AppState())
 
     def __init__(self) -> None:
         """Initialises TUI App."""
@@ -350,33 +340,8 @@ class TUI(App):
                     show_header=True, cursor_type="none", id="table-events", zebra_stripes=True
                 )
 
-    @work(thread=True)
-    def monitor_devices(self) -> None:
-        """"""
-        pass
-
-    @work(exclusive=True)
-    async def monitor_state(self) -> None:
-        """Polls `APP_STATE` & updates the reactive `CURRENT_STATE`."""
-        _log.info(f"{threading.current_thread().name=}, {threading.current_thread().native_id=}")
-        _log.info(f"{contextvars.copy_context()=}")
-
-        previous_state = None
-        while not self.exit_event.is_set():
-            await asyncio.sleep(1)
-            current_state = APP_STATE.get()
-            if current_state == previous_state:
-                # _log.info(f"{current_state=}")
-                continue
-            _log.info("`CURRENT_STATE` has changed")
-            # state has changed - update reactive `CURRENT_STATE`
-            previous_state = current_state
-            self.current_state = current_state
-
     def on_mount(self) -> None:
-        """Handles Textual App `mount` event."""
-        _log.info(f"{threading.current_thread().name=}, {threading.current_thread().native_id=}")
-        _log.info(f"{contextvars.copy_context()=}")
+        """Handles TUI `mount` event."""
 
         self.register_theme(GALAXY_THEME)
         self.app.theme = "galaxy"
@@ -396,16 +361,13 @@ class TUI(App):
         self.table_events.add_columns("VID:PID", "DESCRIPTION")
 
         running_loop = asyncio.get_running_loop()        
-        self.notifier = DeviceNotifier(running_loop, self.handle_device_change)
+        self.notifier = DeviceNotifier(running_loop, self.handle_wm_device_change)
         self.notifier.start()
 
-        # monitor for connected device changes & PnP events
-        self.monitor_state()
-
     def on_unmount(self) -> None:
-        """Handles Textual App `unmount` event."""
+        """Handles TUI `unmount` event."""
         self.exit_event.set()
-    
+
     @on(USBIPDAttachDevice)
     def handle_attach_device(self, message: USBIPDAttachDevice) -> None:
         """forwards `USBIPDAttachDevice` messages to a dedicated worker."""
@@ -433,20 +395,20 @@ class TUI(App):
 
         # mitigate `usbipd_bind` & `usbipd_attach` race conditions
         try:
-            devices = usbipd_state()["Devices"]
+            devices = run_usbipd_state()["Devices"]
             device = next((d for d in devices if d["BusId"] == busid), None)
 
             if not device:
-                _log.warning(f"Missing device @ BUSID {busid}")
+                _log.warning(f"Device @ BUSID {busid} is not found")
                 return
             
             if not device["PersistedGuid"]:
-                usbipd_bind(busid)
-                _log.info(f"Registered device @ BUSID {busid}")
+                run_usbipd_bind(busid)
+                _log.info(f"Registration of device @ BUSID {busid} complete")
             
-            if not device["StubInstanceId"] and any(active_wsl_distros()):
-                usbipd_attach(busid)
-                _log.info(f"Attached device @ BUSID {busid}")
+            if not device["StubInstanceId"] and any(run_wsl_list()):
+                run_usbipd_attach(busid)
+                _log.info(f"Attachment of device @ BUSID {busid} complete")
         finally:
             device_lock.release()
 
@@ -454,7 +416,7 @@ class TUI(App):
     def handle_detach_device(self, message: USBIPDDetachDevice) -> None:
         """forwards `USBIPDDetachDevice` messages to a dedicated worker."""
         self.detach_device_worker(message)
-    
+
     @work(thread=True)
     def detach_device_worker(self, message: USBIPDDetachDevice) -> None:
         """Handles blocking `usbipd_detach` calls.
@@ -476,34 +438,38 @@ class TUI(App):
 
         # mitigate `usbipd_bind` & `usbipd_attach` race conditions
         try:
-            devices = usbipd_state()["Devices"]
+            devices = run_usbipd_state()["Devices"]
             device = next((d for d in devices if d["BusId"] == busid), None)
 
             # device already detached/disconnected
             if not device:
+                _log.info(f"Missing device @ BUSID {busid}")
                 return
 
+            # if currently attached
             if device["StubInstanceId"]:
-                usbipd_detach(busid)
-                _log.info(f"Detached device @ BUSID {busid}")
+                run_usbipd_detach(busid)
+                _log.info(f"Detachment of device @ BUSID {busid} complete")
         finally:
             device_lock.release()
 
-    def parse_device_state(
-            self, device_state: tuple[USBIPDDevice, ...]
+    def parse_usbipd_state(
+            self, usbipd_state: USBIPDState
         ) -> list[list[Text]]:
-        """_summary_
+        """Parses device information in `usbipd state` output.
 
         Args:
-            device_state: _description_
+            usbipd_state: Current state of all connected USB devices.
 
         Returns:
-            _description_
+            A list of Text objects for use in a `DataTable` widget.
         """
         parsed_devices = []
 
-        for device in device_state:
+        for device in usbipd_state["Devices"]:
             if (busid := device["BusId"]) is None:
+                # if device["StubInstanceId"]:
+                #     self.post_message(USBIPDDetachDevice(device))
                 continue
             vid_pid = re.search(USBIPD_VID_PID_PTN, device["InstanceId"])
             VID = vid_pid.group("VID") if vid_pid else "ERROR"
@@ -512,7 +478,7 @@ class TUI(App):
 
             style = ""
             if VID == str(USBIF.VID_RPI):
-                style += "#FF69B4 italic bold"
+                style += "#00FA9A italic bold"
                 self.post_message(USBIPDAttachDevice(device))
 
             # truncate description text to a max width of 24 characters
@@ -532,13 +498,12 @@ class TUI(App):
         return parsed_devices
 
     def update_table_devices(
-            self, device_state: Optional[tuple[USBIPDDevice, ...]] = None
+            self, usbipd_state: Optional[USBIPDState] = None
         ) -> None:
         """Updates connected USB device information `DataTable`."""
-        _log.info(f"{device_state=}")
+
         self.table_devices.clear()
-        devices = device_state or tuple(usbipd_state()["Devices"])
-        self.table_devices.add_rows(self.parse_device_state(devices))
+        self.table_devices.add_rows(self.parse_usbipd_state(usbipd_state or run_usbipd_state()))
         self.table_devices.sort(
             "SHARED",
             "ATTACHED",
@@ -546,35 +511,15 @@ class TUI(App):
             reverse=True,
         )
 
-    def watch_current_state(
-            self, previous: AppState, current: AppState
-        ) -> None:
-        """Handles reactive `CURRENT_STATE` changes.
+    def handle_wm_device_change(self, device_event: DBCEvent) -> None:
+        """Handles `WM_DEVICECHANGE` messages receipt.
 
         Args:
-            previous: Previous value of `CURRENT_STATE`
-            current: Value of `CURRENT_STATE`.
+            device_event: The device event from a `WM_DEVICECHANGE` message.
         """
-
-        _log.info(f"`CURRENT_STATE` changes {previous=} -> {current=}")
-        self.update_table_devices(current.connected_devices)
-
-    def handle_device_change(self, broadcast_type: DBT) -> None:
-        """Handles state updates in response to device change messages.
-        
-        Args:
-            broadcast_type: Broadcast type of a `WM_DEVICECHANGE` message.
-        """
-        _log.info(f"{threading.current_thread().name=}, {threading.current_thread().native_id=}")
-        _log.info(f"{contextvars.copy_context()=}")
-        _log.info(f"{broadcast_type=:04X}")
+        _log.info(f"`WM_DEVICECHANGE` message ({device_event=:04X})")
         try:
-            new_state = AppState(tuple(usbipd_state()["Devices"]))
-            if APP_STATE.get() == new_state:
-                _log.info(f"Device connections remain unchanged")
-            else:
-                _log.info(f"Device connections have changed")
-            APP_STATE.set(new_state)
+            self.post_message(WMDeviceChange(device_event))
         except LookupError as e:
             _log.exception(e, exc_info=True)
 
@@ -591,37 +536,7 @@ def run_as_administrator() -> int:
     )
 
 
-def enable_pnp_audit() -> None:
-    """Enables PnP auditing with `auditpol`.
-
-    Raises:
-        EnablePnPAuditError: On `auditpol` process error.
-        EnablePnPAuditError: On failure to enable PnP auditing.
-    """
-    pnp_enabled = subprocess.Popen(
-        [
-            "auditpol",
-            "/set",
-            "/subcategory:Plug and Play Events",
-            "/success:enable",
-            "/failure:enable",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        shell=False,
-    )
-
-    try:
-        stdout, stderr = pnp_enabled.communicate(timeout=5)
-        if not stdout.lower() == "the command was successfully executed.":
-            raise EnablePnPAuditError(stderr)
-    except subprocess.TimeoutExpired as e:
-        pnp_enabled.kill()
-        raise EnablePnPAuditError from e
-
-
-def usbipd_attach(busid: str) -> None:
+def run_usbipd_attach(busid: str) -> None:
     """Attaches a USB device to WSL.
 
     Args:
@@ -651,7 +566,7 @@ def usbipd_attach(busid: str) -> None:
         raise USBIPDError from e
 
 
-def usbipd_bind(busid: str) -> None:
+def run_usbipd_bind(busid: str) -> None:
     """Registers a USB device for sharing, enabling attachment to WSL.
 
     Args:
@@ -682,7 +597,7 @@ def usbipd_bind(busid: str) -> None:
         raise USBIPDError from e
 
 
-def usbipd_detach(busid: Optional[str] = None) -> None:
+def run_usbipd_detach(busid: Optional[str] = None) -> None:
     """Detach a USB device from WSL.
 
     Will detach all USB devices, if `busid` is not passed.
@@ -717,7 +632,7 @@ def usbipd_detach(busid: Optional[str] = None) -> None:
         raise USBIPDError from e
 
 
-def usbipd_state() -> USBIPDState:
+def run_usbipd_state() -> USBIPDState:
     """Fetches the current state of all USB devices in machine-readable JSON.
 
     Raises:
@@ -748,14 +663,18 @@ def usbipd_state() -> USBIPDState:
     return json.loads(stdout)
 
 
-def active_wsl_distros() -> tuple[str, ...]:
+def run_wsl_list(running: bool = True) -> tuple[str, ...]:
     """Lists running WSL distributions.
 
     Returns:
         A list of running WSL distributions.
     """
+
+    args = ["wsl", "--list", "--quiet"]
+    if running:
+        args.append("--running")
     distros = subprocess.Popen(
-        ["wsl", "--list", "--running", "--quiet"],
+        args,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -775,37 +694,15 @@ def active_wsl_distros() -> tuple[str, ...]:
     return tuple(i for i in stdout.strip().splitlines())
 
 
-def handle_device_change(broadcast_type: DBT) -> None:
-    """Handles state updates in response to device change messages.
-    
-    Args:
-        broadcast_type: Broadcast type of a `WM_DEVICECHANGE` message.
-    """
-    _log.info(f"{broadcast_type=:04X}")
-    try:
-        new_state = AppState(tuple(usbipd_state()["Devices"]))
-        if APP_STATE.get() == new_state:
-            _log.info(f"Device connections remain unchanged")
-        else:
-            _log.info(f"Device connections have changed")
-        APP_STATE.set(new_state)
-    except LookupError as e:
-        _log.exception(e, exc_info=True)
-
-
 if __name__ == "__main__":
     if not is_administrator():
         sys.exit(0) if run_as_administrator() > 32 else sys.exit(1)
 
-    if not is_pnp_audit():
-        enable_pnp_audit()
-
     try:
         app = TUI()
         app.run()
-        
     except KeyboardInterrupt as e:
         _log.info("Caught `KeyboardInterrupt` - TUI shutdown")
     finally:
         _log.info("TUI shutdown - detaching connected devices")
-        usbipd_detach()
+        run_usbipd_detach()
