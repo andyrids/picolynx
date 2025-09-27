@@ -2,16 +2,24 @@
 
 import csv
 import ctypes
+import re
 import subprocess
+from logging import basicConfig, getLogger
 from typing import TYPE_CHECKING
 
 import winerror
 from picolynx.exceptions import EnablePnPAuditError
+from textual.logging import TextualHandler
 
 if TYPE_CHECKING:
     from _win32typing import PyEventLogRecord  # pyright: ignore[reportMissingModuleSource]
 
-__all__ = ("is_administrator", "is_pnp_audit", "is_pnp_event")
+
+LOG_FMT = "%(levelname)-8s | %(funcName)s:%(lineno)d - %(message)s"
+
+basicConfig(level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),))
+logger = getLogger(__name__)
+
 
 def is_administrator() -> bool:
     """Indicates whether shell user is administrator."""
@@ -59,3 +67,17 @@ def is_pnp_event(event: "PyEventLogRecord") -> bool:
         True if `event.EventID` is 6416 (PnP), else False.
     """
     return winerror.HRESULT_CODE(event.EventID) == 6416
+
+def parse_instanceid(instanceid: str) -> tuple[str, str, str]:
+    """Parses `InstanceId` value into VID, PID & serial number.
+
+    Args:
+        instanceid: _description_
+
+    Returns:
+        _description_
+    """
+    ptn = r"VID_(?P<VID>[A-Z0-9]{4})&PID_(?P<PID>[A-Z0-9]{4})\\(?P<SER>[A-Z0-9]+)"
+    if match := re.search(ptn, instanceid):
+        return (match["VID"], match["PID"], match["SER"])
+    return ("UNK", "UNK", "UNK")
