@@ -10,6 +10,7 @@ import subprocess
 import threading
 import sys
 from contextvars import ContextVar
+from ctypes import wstring_at
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import lru_cache
@@ -218,20 +219,24 @@ class DeviceNotifier:
         # interface = DEV_BROADCAST_PORT_W.from_address(lparam)
         # address = ctypes.addressof(interface) + DEV_BROADCAST_PORT_W.dbcp_name.offset
         # device_name = ctypes.wstring_at(address)
-        def post_message(event_name: str) -> None:
+        def post_devtype_port_message(wparam: DBCEvent, lparam: int) -> None:
             """Calls TUI callback if device type is `DBT_DEVTYP_PORT`."""
-            logger.info(f"`{event_name}` ({wparam:04X})")
             hdr = DEV_BROADCAST_HDR.from_address(lparam)
             if hdr.dbch_devicetype == DBCDeviceType.DBT_DEVTYP_PORT:
-                self.loop.call_soon_threadsafe(self.callback, wparam, lparam)
+                interface = DEV_BROADCAST_PORT_W.from_address(lparam)
+                dbcp_name = ctypes.wstring_at(
+                    ctypes.addressof(interface) +
+                    DEV_BROADCAST_PORT_W.dbcp_name.offset
+                )
+                self.call_soon_threadsafe(self.callback, wparam, dbcp_name)
 
         match wparam:
             case DBCEvent.DBT_DEVNODES_CHANGED:
                 logger.info("`DBT_DEVNODES_CHANGED`")
             case DBCEvent.DBT_DEVICEARRIVAL if lparam:
-                post_message("DBT_DEVICEARRIVAL")
+                post_devtype_port_message(wparam, lparam)
             case DBCEvent.DBT_DEVICEREMOVECOMPLETE if lparam:
-                post_message("DBT_DEVICEREMOVECOMPLETE")
+                post_devtype_port_message(wparam, lparam)
             case _:
                 logger.warning("Unhandled device-change event")
         return win32gui.DefWindowProc(hwnd, umsg, wparam, lparam)
