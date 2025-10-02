@@ -4,34 +4,30 @@ from ast import literal_eval
 import asyncio
 import contextvars
 import ctypes
-import json
-import re
-import subprocess
+import ctypes.wintypes
+import logging
 import threading
 import sys
+from asyncio.windows_events import NULL
 from contextvars import ContextVar
-from ctypes import wstring_at
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import lru_cache
 from getpass import getuser
-from logging import basicConfig, getLogger
 from socket import gethostname
-from types import MappingProxyType
-from typing import Callable, ClassVar, Optional, TypedDict, TYPE_CHECKING
+from typing import Callable, ClassVar, Optional, TYPE_CHECKING
 
 import win32api
 import win32con
-import win32event
-import win32evtlog
-import win32evtlogutil
+import win32ctypes.pywin32
 import win32gui
 import winerror
 
 from picolynx import __version__
 from picolynx.commands import *
+from picolynx.components import ContextMenu
 from picolynx.exceptions import USBIPDError, WSLError
-from picolynx.utility import is_administrator, logger, parse_instanceid
+from picolynx.utility import LOG_FMT, is_administrator, parse_instanceid
 from picolynx.structures import *
 from picolynx.themes import GALAXY_THEME
 
@@ -41,14 +37,22 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
 from textual.containers import Container, Horizontal
+from textual.logging import TextualHandler
 from textual.message import Message
 from textual.reactive import reactive
 
 from textual.widgets import DataTable, Label
 from textual._path import CSSPathType
-from win32con import WM_DEVICECHANGE
 from win32ctypes.pywin32 import pywintypes
 
+logging.basicConfig(level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),))
+
+LRESULT = ctypes.c_ssize_t
+UMSG = ctypes.c_uint
+WPARAM = ctypes.c_size_t
+LPARAM = ctypes.c_ssize_t
+
+WNDPROCTYPE = ctypes.WINFUNCTYPE(LRESULT, ctypes.wintypes.HWND, UMSG, WPARAM, LPARAM)
 
 if TYPE_CHECKING:
     from _typeshed import ReadableBuffer
@@ -101,7 +105,7 @@ class WMDeviceChange(Message):
 @dataclass
 class AppState:
     """Stores the entire application state."""
-    connected_devices: USBIPDState = field(default_factory=lambda: {"Devices": []})
+    connected_devices: list[USBIPDState] = field(default_factory=list)
 
 
 APP_STATE: ContextVar[AppState] = ContextVar("app_state", default=AppState())
@@ -118,29 +122,56 @@ class DeviceNotifier:
     def __init__(
             self,
             loop: asyncio.AbstractEventLoop,
-            callback: Callable[[DBCEvent, int], None]
+            callback: Callable[[DBCEvent, str], None]
         ) -> None:
         """Initialises the `DeviceNotifier` class.
 
         Args:
             loop: The running event loop.
 
-            callback: A callback, which will receive the `wparam` & `lparam`
-                from the `WM_DEVICECHANGE` event message.
+            callback: A callback, which will receive the `WM_DEVICECHANGE`
+                event message `wparam` & `dbcp_name` of the port device.
         """
         self._loop = loop
         self._callback = callback
         self._thread = threading.Thread(target=self.message_pump, daemon=True)
+        self._hwnd_ready = threading.Event()
+        self._hwnd = None
+        self._log = logging.getLogger(self.__class__.__name__)
+        self._log.addHandler(TextualHandler())
     
+    @property
+    def callback(self) -> Callable[[DBCEvent, str], None]:
+        """Message callback function property."""
+        return self._callback
+
+    @property
+    def hwnd(self) -> int | None:
+        """Window handle property."""
+        return self._hwnd
+    
+    @hwnd.deleter
+    def hwnd(self) -> None:
+        """Deletes the window handle property."""
+        del self._hwnd
+
+    @hwnd.setter
+    def hwnd(self, window_handle: int | None) -> None:
+        """Sets the window handle property."""
+        if window_handle == NULL:
+            raise RuntimeError("Window handle (`hwnd`) is NULL")
+        self._hwnd = window_handle
+        self._hwnd_ready.set()
+
+    @property
+    def log(self) -> logging.Logger:
+        """Logger property."""
+        return self._log
+
     @property
     def loop(self) -> asyncio.AbstractEventLoop:
         """Running event loop property."""
         return self._loop
-
-    @property
-    def callback(self) -> Callable[[DBCEvent, int], None]:
-        """Message callback function property."""
-        return self._callback
 
     @property
     def thread(self) -> threading.Thread:
@@ -148,98 +179,196 @@ class DeviceNotifier:
         return self._thread
 
     def call_soon_threadsafe(
-            self, callback: Callable[[DBCEvent, int], None], *args
+            self, callback: Callable[[DBCEvent, str], None], *args
         ) -> None:
-        """_summary_
+        """Schedules a function call on the running event loop.
 
         Args:
-            callback: _description_
+            callback: A callback, which will receive the `wparam` & `lparam`
+                from the `WM_DEVICECHANGE` event message.
         """
-        self._loop.call_soon_threadsafe(callback, *args)
+        self.loop.call_soon_threadsafe(callback, *args)
 
     def start(self) -> None:
-        """Starts the `message_pump` thread."""
-        logger.info("Starting `win32gui.PumpMessages`")
+        """Starts the `message_pump` thread.
+        
+        Raises:
+            RuntimeError: On failure to start `win32gui.PumpMessages`.
+        """
+        # self.log.info("Starting `win32gui.PumpMessages`")
         self.thread.start()
+        if not self._hwnd_ready.wait(timeout=5):
+            raise RuntimeError("Failed to start `win32gui.PumpMessages`")
 
-    def message_pump(self) -> None:
-        """Runs a message loop for `WM_DEVICECHANGE` messages."""
+    def stop(self) -> None:
+        """Stops the `message_pump` thread & initiates cleanup actions.
+        
+        1. Post `WM_CLOSE` message
+        2. on `WM_CLOSE` -> `win32gui.DestroyWindow()`
+        2. on `WM_DESTROY` -> `win32gui.PostQuitMessage(0)`
+        """
+        # self.log.info("Stopping `win32gui.PumpMessages`")
+        if self.hwnd is not None:
+            win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, NULL, NULL)
+            self.thread.join(timeout=5)
+            if self.thread.is_alive():
+                self.log.warning("Thread did not exit correctly")
+        else:
+            self.log.warning("Window handle not set, cannot post `WM_CLOSE`")
 
+    def create_window(self) -> None:
+        """"""
         wc = win32gui.WNDCLASS()
         hinst = win32api.GetModuleHandle(None)
         setattr(wc, "hInstance", hinst)
         setattr(wc, "lpszClassName", self.__class__.__name__)
-        setattr(wc, "lpfnWndProc", {WM_DEVICECHANGE: self.process_message})
+        setattr(wc, "lpfnWndProc", WNDPROCTYPE(self.window_proc))
         class_atom = win32gui.RegisterClass(wc)
-
         # create a new window
         self.hwnd = win32gui.CreateWindow(
             class_atom, # class name
             "Device Change Demo", # window title
-            0, # style
-            0, # x
-            0, # y
+            NULL, # style
+            NULL, # x
+            NULL, # y
             win32con.CW_USEDEFAULT, # width
             win32con.CW_USEDEFAULT, # height
-            0, # parent
-            0, # menu
+            NULL, # parent
+            NULL, # menu
             hinst, # hinstance
             None # reserved
         )
 
-        # infinite, blocking loop
-        win32gui.PumpMessages()
+    def message_pump(self) -> None:
+        """Runs a message loop for Windows messages."""
+        try:
+            self.create_window()
+            # infinite, blocking loop
+            win32gui.PumpMessages()
+        except Exception as e:
+            self.log.exception(e)
+            self._hwnd_ready.set()
+        finally:
+            self._hwnd = None
 
-    def process_message(
+    def window_proc(
             self,
             hwnd: int,
             umsg: int,
-            wparam: DBCEvent,
+            wparam: int,
             lparam: int
         ) -> int:
+        """Processes Windows messages from the `message_pump`.
+        
+        Args:
+            hwnd: A handle to the window class.
+
+            umsg: The Windows message code.
+
+            wparam: Additional message-specific data.
+
+            lparam: A pointer to a message-specific structure.
+        """
+        self.log.debug(f"{umsg=:04X}, {wparam=:04X}, {lparam=:04X}")
+        try:
+            match umsg:
+                # on `WM_DEVICECHANGE` without a NULL `lparam`
+                case win32con.WM_DEVICECHANGE if lparam:
+                    self.process_device_change(umsg, wparam, lparam)
+                case win32con.WM_CLOSE | win32con.WM_DESTROY:
+                    self.process_cleanup(hwnd, umsg, wparam, lparam)
+                case _:
+                    pass
+        except Exception as e:
+            self.log.exception(e)
+        finally:
+            return win32gui.DefWindowProc(hwnd, umsg, wparam, lparam)
+
+    def process_cleanup(
+            self,
+            hwnd: int,
+            umsg: int,
+            wparam: int,
+            lparam: int
+        ) -> None:
+        """Runs cleanup actions on `WM_CLOSE` & `WM_DESTROY` messages.
+
+        Args:
+            hwnd: A handle to the window class.
+
+            umsg: The Windows message code.
+
+            wparam: Additional message-specific data.
+
+            lparam: A pointer to a message-specific structure.
+        """
+        self.log.debug(f"{umsg=:04X}, {wparam=:04X}, {lparam=:04X}")
+        match umsg:
+            case win32con.WM_CLOSE:
+                self.log.info("Closing `win32gui.WNDCLASS`")
+                win32gui.DestroyWindow(hwnd)
+            case win32con.WM_DESTROY:
+                self.log.info("Destroying `win32gui.WNDCLASS`")
+                del self.hwnd
+                win32gui.PostQuitMessage(0)
+            case _:
+                self.log.debug("Unexpected `umsg`")
+
+    def process_device_change(
+            self,
+            umsg: int,
+            wparam: int,
+            lparam: int
+        ) -> None:
         """Processes `WM_DEVICECHANGE` messages.
 
         Callbacks are scheduled on the main asyncio loop via the
         `call_soon_threadsafe` method of the running event loop.
 
         Args:
-            hwnd: A handle to the window class.
+            wparam: Additional message-specific data.
 
-            umsg: The `WM_DEVICECHANGE` identifier.
-
-            wparam: The device-change event.
-
-            lparam: A pointer to a structure containing event-specific data.
+            lparam: A pointer to a message-specific structure.
 
         Returns:
             Message processing result, which depends on the message.
         """
-        logger.info(f"`WM_DEVICECHANGE` - {wparam=:04X}, {lparam=:04X}")
+        try:
+            if umsg != win32con.WM_DEVICECHANGE:
+                self.log.error(f"Expected `WM_DEVICECHANGE` ({umsg=:04X})")
+                return
 
-        # interface = DEV_BROADCAST_PORT_W.from_address(lparam)
-        # address = ctypes.addressof(interface) + DEV_BROADCAST_PORT_W.dbcp_name.offset
-        # device_name = ctypes.wstring_at(address)
-        def post_devtype_port_message(wparam: DBCEvent, lparam: int) -> None:
-            """Calls TUI callback if device type is `DBT_DEVTYP_PORT`."""
-            hdr = DEV_BROADCAST_HDR.from_address(lparam)
-            if hdr.dbch_devicetype == DBCDeviceType.DBT_DEVTYP_PORT:
-                interface = DEV_BROADCAST_PORT_W.from_address(lparam)
-                dbcp_name = ctypes.wstring_at(
-                    ctypes.addressof(interface) +
-                    DEV_BROADCAST_PORT_W.dbcp_name.offset
-                )
-                self.call_soon_threadsafe(self.callback, wparam, dbcp_name)
+            self.log.info(f"`WM_DEVICECHANGE` - {wparam=:04X}, {lparam=:04X}")
 
-        match wparam:
-            case DBCEvent.DBT_DEVNODES_CHANGED:
-                logger.info("`DBT_DEVNODES_CHANGED`")
-            case DBCEvent.DBT_DEVICEARRIVAL if lparam:
-                post_devtype_port_message(wparam, lparam)
-            case DBCEvent.DBT_DEVICEREMOVECOMPLETE if lparam:
-                post_devtype_port_message(wparam, lparam)
-            case _:
-                logger.warning("Unhandled device-change event")
-        return win32gui.DefWindowProc(hwnd, umsg, wparam, lparam)
+            def post_devtype_port_message(
+                    wparam: DBCEvent, lparam: int
+                ) -> None:
+                """Calls TUI callback if device type is `DBT_DEVTYP_PORT`."""
+                hdr = DEV_BROADCAST_HDR.from_address(lparam)
+                if hdr.dbch_devicetype == DBCDeviceType.DBT_DEVTYP_PORT:
+                    interface = DEV_BROADCAST_PORT_W.from_address(lparam)
+                    dbcp_name = ctypes.wstring_at(
+                        ctypes.addressof(interface) +
+                        DEV_BROADCAST_PORT_W.dbcp_name.offset
+                    )
+                    if not callable(self.callback):
+                        self.log.error("Callback attribute is not callable")
+                        return
+                    self.call_soon_threadsafe(
+                        self.callback, wparam, dbcp_name
+                    )
+
+            match wparam:
+                case DBCEvent.DBT_DEVNODES_CHANGED:
+                    self.log.info("`DBT_DEVNODES_CHANGED`")
+                case DBCEvent.DBT_DEVICEARRIVAL if lparam:
+                    post_devtype_port_message(wparam, lparam)
+                case DBCEvent.DBT_DEVICEREMOVECOMPLETE if lparam:
+                    post_devtype_port_message(wparam, lparam)
+                case _:
+                    self.log.warning("Unhandled device-change event")
+        except Exception as e:
+            self.log.exception(e)
 
 
 class TUIHeader(Horizontal):
@@ -264,13 +393,16 @@ class TUI(App):
 
     SUB_TITLE: str | None = "SUBTITLE"
 
-    def __init__(self) -> None:
+    def __init__(self, log_level: int = logging.INFO) -> None:
         """Initialises TUI App."""
         super().__init__()
         self._connected_devices: set[str] = set()
         self._exit_event: threading.Event = threading.Event()
+        self._notifier = None
         self._device_locks: dict[str, threading.Lock] = {}
         self._thread_lock: threading.Lock = threading.Lock()
+        self.__log = logging.getLogger(self.__class__.__name__)
+        self.__log.setLevel(log_level)
 
     @property
     @lru_cache(1)
@@ -285,6 +417,29 @@ class TUI(App):
         return self.query_one("#container-events", Container)
 
     @property
+    def device_locks(self) -> dict[str, threading.Lock]:
+        """Property for device threading lock."""
+        return self._device_locks
+
+    @property
+    def exit_event(self) -> threading.Event:
+        """Property for threading exit `Event`."""
+        return self._exit_event
+
+    @property
+    def notifier(self) -> DeviceNotifier:
+        """Property for `DeviceNotifier` instance.
+
+        Raises:
+            AttributeError: On missing `_notifier` attribute.
+        """
+        if self._notifier is None:
+            raise AttributeError(
+                "Expected `self._notifier` set to `DeviceNotifier`"
+            )
+        return self._notifier
+
+    @property
     @lru_cache(1)
     def table_devices(self) -> DataTable:
         """Property for connected devices `DataTable` widget."""
@@ -297,25 +452,17 @@ class TUI(App):
         return self.query_one("#table-events", DataTable)
     
     @property
-    def device_locks(self) -> dict[str, threading.Lock]:
-        """Property for device threading lock."""
-        return self._device_locks
-
-    @property
-    def exit_event(self) -> threading.Event:
-        """Property for threading exit `Event`."""
-        return self._exit_event
-
-    @property
     def thread_lock(self) -> threading.Lock:
         """Property for threading lock."""
         return self._thread_lock
 
     def compose(self) -> ComposeResult:
         yield TUIHeader()
+        yield ContextMenu(id="context-menu")
         with Container(id="container-main"):
             with Container(id="container-devices"):
                 yield DataTable(cursor_type="row", id="table-devices")
+            
 
     def on_mount(self) -> None:
         """Handles TUI `mount` event."""
@@ -333,17 +480,19 @@ class TUI(App):
         self.update_table_devices()
 
         running_loop = asyncio.get_running_loop()        
-        self.notifier = DeviceNotifier(running_loop, self.device_notification)
+        self._notifier = DeviceNotifier(running_loop, self.device_notification)
         self.notifier.start()
+
 
     def on_unmount(self) -> None:
         """Handles TUI `unmount` event."""
+        self.notifier.stop()
         self.exit_event.set()
 
     @on(USBIPDAttachDevice)
     def handle_attach_device(self, message: USBIPDAttachDevice) -> None:
         """forwards `USBIPDAttachDevice` messages to a dedicated worker."""
-        if not message.device["StubInstanceId"]:
+        if not message.device.isattached:
             self.worker_attach_device(message)
     
     @on(USBIPDDetachDevice)
@@ -370,7 +519,8 @@ class TUI(App):
         Args:
             message: Device information message for `usbipd attach` command.
         """
-        busid = message.device["BusId"]
+        if not (busid := message.device.busid):
+            return
         # mitigate `device_locks` dict race condition
         with self.thread_lock:
             # dict CRUD is now atomic
@@ -378,26 +528,27 @@ class TUI(App):
 
         # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
         if not device_lock.acquire(blocking=False):
-            logger.info(f"Attachment of device @ BUSID {busid} in progress")
             # return early if lock is already held
             return
 
         # mitigate `usbipd_bind` & `usbipd_attach` race conditions
         try:
-            devices = run_usbipd_state()["Devices"]
-            device = next((d for d in devices if d["BusId"] == busid), None)
-
-            if not device:
-                logger.warning(f"Device @ BUSID {busid} is not found")
-                return
-            
-            if not device["PersistedGuid"]:
-                run_usbipd_bind(busid)
-                logger.info(f"Registration of device @ BUSID {busid} complete")
-            
-            if not device["StubInstanceId"] and any(run_wsl_list()):
-                run_usbipd_attach(busid)
-                logger.info(f"Attachment of device @ BUSID {busid} complete")
+            connected_devices = run_usbipd_state()
+            for device in connected_devices:
+                match device:
+                    # `busid` matches, but device is not bound or attached
+                    case USBIPDDevice(busid=busid, isbound=False) if busid:
+                        run_usbipd_bind(busid)
+                        run_usbipd_attach(busid)
+                        break
+                    # `busid` matches, but device is bound & not attached
+                    case USBIPDDevice(busid=busid, isattached=False) if busid:
+                        run_usbipd_attach(busid)
+                        break
+                    case _:
+                        continue
+        except USBIPDError as e:
+            self.__log.exception(e)
         finally:
             device_lock.release()
 
@@ -408,7 +559,9 @@ class TUI(App):
         Args:
             message: Device information message for `usbipd attach` command.
         """
-        busid = message.device["BusId"]
+        if not (busid := message.device.busid):
+            return
+
         # mitigate `device_locks` dict race condition
         with self.thread_lock:
             # dict CRUD is now atomic
@@ -416,29 +569,31 @@ class TUI(App):
 
         # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
         if not device_lock.acquire(blocking=False):
-            logger.info(f"Detachment of device @ BUSID {busid} in progress")
             # return early if lock is already held
             return
 
         # mitigate `usbipd_bind` & `usbipd_attach` race conditions
         try:
-            devices = run_usbipd_state()["Devices"]
-            device = next((d for d in devices if d["BusId"] == busid), None)
-
-            # device already detached/disconnected
-            if not device:
-                logger.info(f"Missing device @ BUSID {busid}")
-                return
-
-            # if currently attached
-            if device["StubInstanceId"]:
-                run_usbipd_detach(busid)
-                logger.info(f"Detachment of device @ BUSID {busid} complete")
+            connected_devices = run_usbipd_state()
+            for device in connected_devices:
+                match device:
+                    # `busid` matches & device is attached
+                    case USBIPDDevice(busid=busid, isattached=True) if busid:
+                        run_usbipd_detach(busid)
+                        break
+                    # `busid` matches, but device is not attached
+                    case USBIPDDevice(busid=busid, isattached=False) if busid:
+                        self.__log.info(f"Missing device @ BUSID {busid}")
+                        break
+                    case _:
+                        continue
+        except USBIPDError as e:
+            self.__log.exception(e)
         finally:
             device_lock.release()
 
     def parse_usbipd_state(
-            self, usbipd_state: USBIPDState
+            self, connected_devices: list[USBIPDDevice]
         ) -> list[list[Text]]:
         """Parses device information in `usbipd state` output.
 
@@ -449,78 +604,57 @@ class TUI(App):
             A list of Text objects for use in a `DataTable` widget.
         """
         parsed_devices = []
-
-        for device in usbipd_state["Devices"]:
-            if (busid := device["BusId"]) is None:
+        for device in connected_devices:
+            if device.busid is None:
                 # if device["StubInstanceId"]:
                 #     self.post_message(USBIPDDetachDevice(device))
                 continue
 
-            VID, PID, SER = parse_instanceid(device["InstanceId"])
-            VID_PID = f"{VID}:{PID}"
-
             style = ""
 
             # truncate description text to a max width of 24 characters
-            description = Text(device["Description"], style=style)
+            description = Text(device.description, style=style)
             description.truncate(max_width=40, overflow="ellipsis")
-            parse_instanceid(device["InstanceId"])
             parsed_devices.append(
                 [
-                    Text(busid, style=style, justify="center"),
+                    Text(f"{device.busid}", style=style, justify="center"),
                     description,
-                    Text(str(bool(device["PersistedGuid"])), style=style),
-                    Text(str(bool(device["StubInstanceId"])), style=style),
+                    Text(str(device.isbound), style=style),
+                    Text(str(device.isattached), style=style),
                 ]
             )
 
         return parsed_devices
 
     def update_table_devices(
-            self, usbipd_state: Optional[USBIPDState] = None
+            self, usbipd_state: Optional[list[USBIPDDevice]] = None
         ) -> None:
         """Updates connected USB device information `DataTable`."""
 
         self.table_devices.clear()
         self.table_devices.add_rows(self.parse_usbipd_state(usbipd_state or run_usbipd_state()))
 
-    def device_notification(self, wparam: DBCEvent, lparam: int) -> None:
+    def device_notification(self, wparam: DBCEvent, name: str) -> None:
         """Handles `WM_DEVICECHANGE` messages receipt.
 
         Args:
             device_event: The device event from a `WM_DEVICECHANGE` message.
         """
-        logger.info(f"`WM_DEVICECHANGE` message ({wparam=:04X})")
+        self.__log.info(f"`WM_DEVICECHANGE` message ({wparam=:04X})")
         try:
             self.post_message(WMDeviceChange(wparam))
         except LookupError as e:
-            logger.exception(e, exc_info=True)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            self.__log.exception(e)
 
 
 if __name__ == "__main__":
     if not is_administrator():
-        sys.exit(0) if run_as_administrator() > 32 else sys.exit(1)
-
+        # any nonzero value is considered 'abnormal termination'
+        sys.exit(NULL) if run_as_administrator() else sys.exit(1)
     try:
         app = TUI()
         app.run()
     except KeyboardInterrupt as e:
-        logger.info("Caught `KeyboardInterrupt` - TUI shutdown")
+        pass
     finally:
-        logger.info("TUI shutdown - detaching connected devices")
         run_usbipd_detach()

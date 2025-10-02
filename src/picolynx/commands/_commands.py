@@ -1,35 +1,76 @@
 """"""
 import ctypes
 import json
+import re
 import subprocess
 import sys
+from logging import getLogger
+from pydantic import BaseModel, Field, IPvAnyAddress, ValidationError, computed_field
 from win32con import SW_SHOWNORMAL
 from typing import Optional, TypedDict
 from picolynx.exceptions import USBIPDError, WSLError
-from picolynx.utility import logger
+from picolynx.utility import LOG_FMT
+from textual.logging import TextualHandler
+
+__log = getLogger(__name__)
 
 
-class USBIPDDevice(TypedDict):
+class USBIPDDevice(BaseModel):
     """Device information structure for `usbipd` state JSON."""
 
-    BusId: str
-    ClientIPAddress: Optional[str]
-    Description: str
-    InstanceId: str
-    IsForced: bool
-    PersistedGuid: Optional[str]
-    StubInstanceId: Optional[str]
+    busid: Optional[str] = Field(None, alias="BusId")
+    clientipaddress: Optional[IPvAnyAddress] = Field(None, alias="ClientIPAddress")
+    description: str = Field(alias="Description")
+    instanceid: str = Field(alias="InstanceId")
+    isforced: bool = Field(alias="IsForced")
+    persistedguid: Optional[str] = Field(None, alias="PersistedGuid")
+    stubinstanceid: Optional[str] = Field(None, alias="StubInstanceId")
+
+    @computed_field
+    @property
+    def vid(self) -> str:
+        """Device vendor ID property."""
+        ptn = r"VID_(?P<VID>[A-Z0-9]{4})"
+        result = re.search(ptn, self.instanceid)
+        return result["VID"] if result else "????"
+
+    @computed_field
+    @property
+    def pid(self) -> str:
+        """Device product ID property."""
+        ptn = r"PID_(?P<PID>[A-Z0-9]{4})"
+        result = re.search(ptn, self.instanceid)
+        return result["PID"] if result else "????"
+
+    @computed_field
+    @property
+    def isbound(self) -> bool:
+        """Indicates if the device is bound."""
+        return bool(self.persistedguid)
+
+    @computed_field
+    @property
+    def isattached(self) -> bool:
+        """Indicates if the device is attached."""
+        return bool(self.stubinstanceid)
+
+    @computed_field
+    @property
+    def isconnected(self) -> bool:
+        """Indicates if the device is connected."""
+        return bool(self.busid)
 
 
-class USBIPDState(TypedDict):
-    """Top-level structure for `usbipd` state JSON."""
-
-    Devices: list[USBIPDDevice]
+class USBIPDState(BaseModel):
+    devices: list[USBIPDDevice] = Field(alias="Devices")
 
 
-def run_as_administrator() -> int:
-    """"""
-    return ctypes.windll.shell32.ShellExecuteW(
+def run_as_administrator() -> bool:
+    """Launches the app as Administrator.
+    
+    Returns:
+        True if `ShellExecuteW` execution was successful, else False."""
+    exit_code = ctypes.windll.shell32.ShellExecuteW(
         None,
         "runas",
         sys.executable,
@@ -37,6 +78,7 @@ def run_as_administrator() -> int:
         None,
         SW_SHOWNORMAL,
     )
+    return exit_code > 32
 
 
 def run_usbipd_attach(busid: str) -> None:
@@ -57,7 +99,7 @@ def run_usbipd_attach(busid: str) -> None:
             shell=False,
         )
     except FileNotFoundError as e:
-        logger.fatal("`usbipd` is not installed", exc_info=True)
+        __log.fatal("`usbipd` is not installed", exc_info=True)
         raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
 
     try:
@@ -67,6 +109,8 @@ def run_usbipd_attach(busid: str) -> None:
     except subprocess.TimeoutExpired as e:
         usbipd_attach.kill()
         raise USBIPDError from e
+    else:
+        __log.info(f"Attached device @ BUSID {busid}")
 
 
 def run_usbipd_bind(busid: str) -> None:
@@ -87,17 +131,19 @@ def run_usbipd_bind(busid: str) -> None:
             shell=False,
         )
     except FileNotFoundError as e:
-        logger.fatal("`usbipd` is not installed", exc_info=True)
+        __log.fatal("`usbipd` is not installed", exc_info=True)
         raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
 
     try:
         stdout, stderr = usbipd_attach.communicate(timeout=5)
-        logger.info(stdout or stderr)
+        __log.info(stdout or stderr)
         if usbipd_attach.returncode:
             raise USBIPDError(stdout or stderr)
     except subprocess.TimeoutExpired as e:
         usbipd_attach.kill()
         raise USBIPDError from e
+    else:
+        __log.info(f"Registered device @ BUSID {busid}")
 
 
 def run_usbipd_detach(busid: Optional[str] = None) -> None:
@@ -121,21 +167,23 @@ def run_usbipd_detach(busid: Optional[str] = None) -> None:
             shell=False,
         )
     except FileNotFoundError as e:
-        logger.fatal("`usbipd` is not installed", exc_info=True)
+        __log.fatal("`usbipd` is not installed", exc_info=True)
         raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
 
     try:
         stdout, stderr = usbipd_detach.communicate(timeout=5)
         if (msg := stdout or stderr):
-            logger.info(msg)
+            __log.info(msg)
         if usbipd_detach.returncode:
             raise USBIPDError(msg)
     except subprocess.TimeoutExpired as e:
         usbipd_detach.kill()
         raise USBIPDError from e
+    else:
+        __log.info(f"Detached device @ BUSID {busid}")
 
 
-def run_usbipd_state() -> USBIPDState:
+def run_usbipd_state() -> list[USBIPDDevice]:
     """Fetches the current state of all USB devices in machine-readable JSON.
 
     Raises:
@@ -153,7 +201,7 @@ def run_usbipd_state() -> USBIPDState:
             shell=False,
         )
     except FileNotFoundError as e:
-        logger.fatal("`usbipd` is not installed", exc_info=True)
+        __log.fatal("`usbipd` is not installed", exc_info=True)
         raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
 
     try:
@@ -163,7 +211,16 @@ def run_usbipd_state() -> USBIPDState:
     except subprocess.TimeoutExpired as e:
         usbipd_state.kill()
         raise USBIPDError from e
-    return json.loads(stdout)
+    
+    try:
+        state = json.loads(stdout)
+        return USBIPDState(**state).devices
+    except json.JSONDecodeError as e:
+        __log.exception(e)
+    except ValidationError as e:
+        __log.exception(e)
+    return []
+    
 
 
 def run_wsl_list(running: bool = True) -> tuple[str, ...]:

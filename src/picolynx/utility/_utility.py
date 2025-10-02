@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from _win32typing import PyEventLogRecord  # pyright: ignore[reportMissingModuleSource]
 
 
-LOG_FMT = "%(levelname)-8s | %(funcName)s:%(lineno)d - %(message)s"
+LOG_FMT = "%(levelname)-8s | %(name)s.%(funcName)s:%(lineno)d - %(message)s"
 
 basicConfig(level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),))
 logger = getLogger(__name__)
