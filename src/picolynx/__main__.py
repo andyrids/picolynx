@@ -4,12 +4,12 @@ from ast import literal_eval
 import asyncio
 import contextvars
 import ctypes
-import ctypes.wintypes
 import logging
 import threading
 import sys
 from asyncio.windows_events import NULL
 from contextvars import ContextVar
+from ctypes import wintypes
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import lru_cache
@@ -25,9 +25,9 @@ import winerror
 
 from picolynx import __version__
 from picolynx.commands import *
-from picolynx.components import ContextMenu
+from picolynx.components import TUIHeader, TUINavigation
 from picolynx.exceptions import USBIPDError, WSLError
-from picolynx.utility import LOG_FMT, is_administrator, parse_instanceid
+from picolynx.utility import LOG_FMT, is_administrator
 from picolynx.structures import *
 from picolynx.themes import GALAXY_THEME
 
@@ -40,8 +40,7 @@ from textual.containers import Container, Horizontal
 from textual.logging import TextualHandler
 from textual.message import Message
 from textual.reactive import reactive
-
-from textual.widgets import DataTable, Label
+from textual.widgets import DataTable
 from textual._path import CSSPathType
 from win32ctypes.pywin32 import pywintypes
 
@@ -52,14 +51,11 @@ UMSG = ctypes.c_uint
 WPARAM = ctypes.c_size_t
 LPARAM = ctypes.c_ssize_t
 
-WNDPROCTYPE = ctypes.WINFUNCTYPE(LRESULT, ctypes.wintypes.HWND, UMSG, WPARAM, LPARAM)
+WNDPROCTYPE = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, UMSG, WPARAM, LPARAM)
 
 if TYPE_CHECKING:
     from _typeshed import ReadableBuffer
     from _win32typing import PyEventLogRecord  # pyright: ignore[reportMissingModuleSource]
-    
-
-USBIPD_VID_PID_PTN = "VID_(?P<VID>[A-Z0-9]{4})&PID_(?P<PID>[A-Z0-9]{4})"
 
 
 class USBIF(IntEnum):
@@ -138,7 +134,7 @@ class DeviceNotifier:
         self._hwnd_ready = threading.Event()
         self._hwnd = None
         self._log = logging.getLogger(self.__class__.__name__)
-        self._log.addHandler(TextualHandler())
+        #self._log.addHandler(TextualHandler())
     
     @property
     def callback(self) -> Callable[[DBCEvent, str], None]:
@@ -217,7 +213,7 @@ class DeviceNotifier:
             self.log.warning("Window handle not set, cannot post `WM_CLOSE`")
 
     def create_window(self) -> None:
-        """"""
+        """Creates a Windows message-only window."""
         wc = win32gui.WNDCLASS()
         hinst = win32api.GetModuleHandle(None)
         setattr(wc, "hInstance", hinst)
@@ -371,17 +367,6 @@ class DeviceNotifier:
             self.log.exception(e)
 
 
-class TUIHeader(Horizontal):
-    """TUI header widget."""
-
-    def compose(self) -> ComposeResult:
-        """Generates the TUI header components."""
-        version = f"[b]PicoLynx[/] [dim]v{__version__}[/]"
-        yield Label(version, id="header-title")
-        hostname = Text.from_markup(f"{getuser()}@{gethostname()}")
-        yield Label(hostname, id="header-hostname")
-
-
 class TUI(App):
     """Main `textual` TUI."""
 
@@ -441,15 +426,15 @@ class TUI(App):
 
     @property
     @lru_cache(1)
-    def table_devices(self) -> DataTable:
+    def table_connected(self) -> DataTable:
         """Property for connected devices `DataTable` widget."""
-        return self.query_one("#table-devices", DataTable)
+        return self.query_one("#table-connected", DataTable)
 
     @property
     @lru_cache(1)
-    def table_events(self) -> DataTable:
+    def table_persisted(self) -> DataTable:
         """Property for Windows events `DataTable` widget."""
-        return self.query_one("#table-events", DataTable)
+        return self.query_one("#table-persisted", DataTable)
     
     @property
     def thread_lock(self) -> threading.Lock:
@@ -458,11 +443,8 @@ class TUI(App):
 
     def compose(self) -> ComposeResult:
         yield TUIHeader()
-        yield ContextMenu(id="context-menu")
         with Container(id="container-main"):
-            with Container(id="container-devices"):
-                yield DataTable(cursor_type="row", id="table-devices")
-            
+            yield TUINavigation()
 
     def on_mount(self) -> None:
         """Handles TUI `mount` event."""
@@ -471,12 +453,7 @@ class TUI(App):
         self.app.theme = "galaxy"
 
         # set container widget border titles
-        self.container_devices.border_title = "Connected Devices"
-
-        # setup `DataTable` widget for connected devices
-        self.table_devices.add_columns("BUSID", "DESCRIPTION", "BOUND")
-        self.table_devices.add_column("ATTACHED", key="ATTACHED")
-
+        # self.container_devices.border_title = "Connected Devices"
         self.update_table_devices()
 
         running_loop = asyncio.get_running_loop()        
@@ -604,23 +581,20 @@ class TUI(App):
             A list of Text objects for use in a `DataTable` widget.
         """
         parsed_devices = []
-        for device in connected_devices:
-            if device.busid is None:
-                # if device["StubInstanceId"]:
-                #     self.post_message(USBIPDDetachDevice(device))
+        for dev in connected_devices:
+            if dev.busid is None:
+                if dev.isattached:
+                    self.post_message(USBIPDDetachDevice(dev))
                 continue
 
-            style = ""
-
-            # truncate description text to a max width of 24 characters
-            description = Text(device.description, style=style)
-            description.truncate(max_width=40, overflow="ellipsis")
+            md = ""
             parsed_devices.append(
                 [
-                    Text(f"{device.busid}", style=style, justify="center"),
-                    description,
-                    Text(str(device.isbound), style=style),
-                    Text(str(device.isattached), style=style),
+                    Text(dev.description, style=md, overflow="ellipsis"),
+                    Text(f"{dev.busid}", style=md, justify="center"),
+                    Text(f"{dev.vid}:{dev.pid}", style=md, justify="center"),
+                    Text(f"{dev.isbound}", style=md, justify="center"),
+                    Text(f"{dev.isattached}", style=md, justify="center"),
                 ]
             )
 
@@ -631,8 +605,11 @@ class TUI(App):
         ) -> None:
         """Updates connected USB device information `DataTable`."""
 
-        self.table_devices.clear()
-        self.table_devices.add_rows(self.parse_usbipd_state(usbipd_state or run_usbipd_state()))
+        self.table_connected.clear()
+        self.table_connected.add_rows(
+            self.parse_usbipd_state(usbipd_state or run_usbipd_state())
+        )
+
 
     def device_notification(self, wparam: DBCEvent, name: str) -> None:
         """Handles `WM_DEVICECHANGE` messages receipt.

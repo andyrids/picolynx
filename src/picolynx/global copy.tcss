@@ -1,0 +1,119 @@
+# Theme colours are in `picolynx.__main__.GALAXY_THEME`
+
+* {
+    scrollbar-background: $surface-darken-1;
+    scrollbar-background-active: $surface-darken-1;
+    scrollbar-background-hover: $surface-darken-1;
+    scrollbar-color: $primary 10%;
+    scrollbar-color-active: $primary;
+    scrollbar-color-hover: $primary 80%;
+    scrollbar-size-horizontal: 1;
+    scrollbar-size-vertical: 1;
+
+    &:focus {
+        scrollbar-color: $primary 50%;
+    }
+}
+
+Checkbox {
+    min-width: 20;
+    width: 100%;
+    &:focus {
+        background: $surface;
+        background-tint: $surface;
+    }
+    &:focus > .toggle--label {
+        background: $surface;
+        text-style: none;
+    }
+
+}
+
+# Round borders around all Container & ItemGrid widgets
+Container {
+    border: round $accent 30%;
+    border-title-align: center;
+    border-title-color: $text-accent 50%;
+    border-title-style: bold;
+}
+
+
+# Generic styling for all DataTable widgets
+DataTable, DeviceTable {
+    background: $background;
+    height: 100%;
+    margin: 0 0;
+    min-height: 5;
+    overflow-y: scroll;
+    padding: 0 1;
+    width: 100%;
+    
+    &:focus {
+        background-tint: $background 100%;
+    }
+    & > .datatable--header {
+        background: $surface;
+        color: $text-success;
+    }
+    &:focus > .datatable--header {
+        background: $surface;
+        background-tint: $surface 100%;
+    }
+}
+
+Tabs {
+    background: $background;
+    border: none;
+    height: 4;
+    margin: 0;
+    padding: 0;
+}
+
+Footer {
+    border: round;
+    background: $background;
+    height: 1;
+}
+
+# Custom TUIHeader widget
+TUIHeader {
+    border: none;
+    color: $text-primary;
+    height: auto;
+    margin: 0 1;
+    padding: 1 1;
+    & > #header-hostname {
+        color: $text-muted;
+        dock: right;
+    }
+}
+
+# Main TUI container for all layout widgets
+#container-main {
+    border: none;
+    grid-columns: 1fr;
+    grid-gutter: 1;
+    grid-rows: 1fr;
+    grid-size: 1 1;
+    layout: grid;
+    margin: 0 1;
+    overflow-y: scroll;
+    padding: 0;
+    scrollbar-size-vertical: 0;
+}
+
+# top-left connected devices container
+#container-devices {
+    column-span: 1;
+    height: 100%;
+    row-span: 1;
+}
+
+# Set border & border-title styling on focus-within
+#container-devices {
+    &:focus-within {
+        border: round $accent 100%;
+        border-title-color: $foreground;
+        border-title-style: bold;
+    }
+}

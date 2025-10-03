@@ -12,7 +12,7 @@ from picolynx.exceptions import USBIPDError, WSLError
 from picolynx.utility import LOG_FMT
 from textual.logging import TextualHandler
 
-__log = getLogger(__name__)
+__log = getLogger("commands")
 
 
 class USBIPDDevice(BaseModel):
@@ -41,6 +41,14 @@ class USBIPDDevice(BaseModel):
         ptn = r"PID_(?P<PID>[A-Z0-9]{4})"
         result = re.search(ptn, self.instanceid)
         return result["PID"] if result else "????"
+
+    @computed_field
+    @property
+    def serial(self) -> str:
+        """Device product serial property."""
+        ptn = r"\\(?P<SER>[A-Z0-9]+)$"
+        result = re.search(ptn, self.instanceid)
+        return result["SER"] if result else "????"
 
     @computed_field
     @property
