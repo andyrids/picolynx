@@ -1,5 +1,8 @@
 set shell := ["powershell.exe", "-c"]
 
+sync:
+    uv sync
+
 console:
 	uv run textual console -x EVENT -x SYSTEM
 
