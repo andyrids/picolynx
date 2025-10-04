@@ -1,6 +1,5 @@
 """"""
 
-from ast import literal_eval
 import asyncio
 import contextvars
 import ctypes
@@ -13,9 +12,8 @@ from ctypes import wintypes
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import lru_cache
-from getpass import getuser
-from socket import gethostname
 from typing import Callable, ClassVar, Optional, TYPE_CHECKING
+from xxlimited import new
 
 import win32api
 import win32con
@@ -372,7 +370,7 @@ class TUI(App):
 
     BINDINGS: ClassVar[list[BindingType]] = [("d", "dark_mode", "Dark mode")]
 
-    CSS_PATH: ClassVar[CSSPathType | None] = "global.tcss"
+    CSS_PATH: ClassVar[CSSPathType | None] = "app.tcss"
 
     TITLE: str | None = "TITLE"
 
@@ -386,6 +384,7 @@ class TUI(App):
         self._notifier = None
         self._device_locks: dict[str, threading.Lock] = {}
         self._thread_lock: threading.Lock = threading.Lock()
+        self._cached_devices: dict[str, USBIPDDevice] = {}
         self.__log = logging.getLogger(self.__class__.__name__)
         self.__log.setLevel(log_level)
 
@@ -452,13 +451,23 @@ class TUI(App):
         self.register_theme(GALAXY_THEME)
         self.app.theme = "galaxy"
 
-        # set container widget border titles
-        # self.container_devices.border_title = "Connected Devices"
-        self.update_table_devices()
+        self.initial_populate_devices()
 
         running_loop = asyncio.get_running_loop()        
-        self._notifier = DeviceNotifier(running_loop, self.device_notification)
+        self._notifier = DeviceNotifier(running_loop, self.handle_wm_events)
         self.notifier.start()
+
+    def initial_populate_devices(self) -> None:
+        """"""
+        self.table_connected.clear()
+
+        new_cache: dict[str, USBIPDDevice] = {}]
+        for device in run_usbipd_state():
+            if device.busid:
+                new_cache[device.busid] = device
+                row = self.parse_device_to_row(device)
+                self.table_connected.add_row(row, key=device.busid)
+        self._cached_devices = new()
 
 
     def on_unmount(self) -> None:
@@ -611,7 +620,7 @@ class TUI(App):
         )
 
 
-    def device_notification(self, wparam: DBCEvent, name: str) -> None:
+    def handle_wm_events(self, wparam: DBCEvent, name: str) -> None:
         """Handles `WM_DEVICECHANGE` messages receipt.
 
         Args:
