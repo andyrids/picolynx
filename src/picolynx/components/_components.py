@@ -2,7 +2,8 @@ import asyncio
 from functools import lru_cache
 from getpass import getuser
 from socket import gethostname
-from typing import Any
+from typing import Any, ClassVar
+from typing_extensions import Literal
 
 from rich.text import Text
 from textual import events, work
@@ -15,132 +16,147 @@ from textual.widgets.data_table import ColumnKey
 from picolynx import __version__
 
 
-class AutoAttachedTable(DataTable[Any]):
-    """A `DataTable` for `usbipd` auto-attached devices."""
-    COL1_MIN_WIDTH = 20
-    COL1_MAX_WIDTH = 40
-    COL2_WIDTH = 15
-    STATIC_WIDTH = COL2_WIDTH
+class DynamicWidthTable(DataTable[Any]):
+    """"""
 
-    _previous_width = COL1_MIN_WIDTH
+    _previous_width: int = 0
+
+    def __init__(
+            self,
+            dynamic_min: int = 20,
+            dynamic_max: int = 40,
+            dynamic_label: str = "",
+            *,
+            static_widths: tuple[int, ...],
+            static_labels: tuple[str, ...],
+            **kwargs
+        ) -> None:
+        """"""
+        self._dynamic_label = dynamic_label
+        self._dynamic_min = dynamic_min
+        self._dynamic_max = dynamic_max
+        self._static_count = len(static_widths)
+        self._static_width = sum(static_widths)
+        self._static_widths = static_widths
+        if self._static_count != len(static_labels):
+            raise ValueError(f"Missing label from `{static_labels}`")
+        self._static_labels = static_labels
+        super().__init__(**kwargs)
+    
+    @property
+    def dynamic_label(self) -> str:
+        """"""
+        return self._dynamic_label
 
     @property
-    def total_padding(self) -> int:
+    def dynamic_max(self) -> int:
         """"""
-        return self.cell_padding * 2 * 2
+        return self._dynamic_max
 
+    @property
+    def dynamic_min(self) -> int:
+        """"""
+        return self._dynamic_min
+    
+    @property
+    def static_count(self) -> int:
+        """"""
+        return self._static_count
+
+    @property
+    def static_total_width(self) -> int:
+        """"""
+        return self._static_width
+
+    @property
+    def static_labels(self) -> tuple[str, ...]:
+        """"""
+        return self._static_labels
+    
+    @property
+    def static_widths(self) -> tuple[int, ...]:
+        """"""
+        return self._static_widths
+    
+    @property
+    def total_padding(self) -> int:
+        """Total padding size for total"""
+        return self.cell_padding * len(self.columns) * 2
+    
     @lru_cache(maxsize=32)
     def calculate_width(self, width: int) -> int:
         """"""
-        dynamic_width = width - self.STATIC_WIDTH - self.total_padding
-        dynamic_width = max(dynamic_width, self.COL1_MIN_WIDTH)
-        return min(dynamic_width, self.COL1_MAX_WIDTH)
-
+        dynamic_width = width - self.static_total_width - self.total_padding
+        dynamic_width = max(dynamic_width, self.dynamic_min)
+        return min(dynamic_width, self.dynamic_max)
+    
     def on_mount(self) -> None:
         """"""
-        initial_width = self.calculate_width(self.size.width)
-        self.add_column("DESCRIPTION", width=initial_width, key="1")
-        self.add_column("SERIAL", width=self.COL2_WIDTH, key="2")
-        if self.COL1_MIN_WIDTH != initial_width:
-            self._previous_width = initial_width
+        initial_width = self.calculate_width(self.dynamic_min)
+        self.add_column(self.dynamic_label, width=initial_width, key="1")
 
-    @work(exclusive=True)
-    async def on_resize(self, event: events.Resize) -> None:
-        """"""
-        await asyncio.sleep(0.1)
-        new_width = self.calculate_width(event.size.width)
-
-        if self._previous_width != new_width:
-            self._previous_width = new_width
-            self.columns[ColumnKey("1")].width = new_width
-
-class DeviceTable(DataTable[Any]):
-    """A `DataTable` for `usbipd` connected device output."""
-    COL1_MIN_WIDTH = 15
-    COL1_MAX_WIDTH = 40
-    COL2_WIDTH = 5
-    COL3_WIDTH = 7
-    COL4_WIDTH = 5
-    COL5_WIDTH = 8
-    STATIC_WIDTH = sum((COL2_WIDTH, COL3_WIDTH, COL4_WIDTH, COL5_WIDTH))
-
-    _previous_width = COL1_MIN_WIDTH
-
-    def on_mount(self) -> None:
-        """"""
-        initial_width = self.calculate_width(self.size.width)
-        self.add_column("DESCRIPTION", width=initial_width, key="1")
-        self.add_column("BUSID", width=self.COL2_WIDTH, key="2")
-        self.add_column("VID:PID", width=self.COL3_WIDTH, key="3")
-        self.add_column("BOUND", width=self.COL4_WIDTH, key="4")
-        self.add_column("ATTACHED", width=self.COL5_WIDTH, key="5")
-        if self.COL1_MIN_WIDTH != initial_width:
-            self._previous_width = initial_width
-
-    @property
-    def total_padding(self) -> int:
-        """"""
-        return self.cell_padding * 5 * 2
-
-    @lru_cache(maxsize=32)
-    def calculate_width(self, width: int) -> int:
-        """"""
-        dynamic_width = width - self.STATIC_WIDTH - self.total_padding
-        dynamic_width = max(dynamic_width, self.COL1_MIN_WIDTH)
-        return min(dynamic_width, self.COL1_MAX_WIDTH)
-
-    @work(exclusive=True)
-    async def on_resize(self, event: events.Resize) -> None:
-        """"""
-        await asyncio.sleep(0.1)
-        new_width = self.calculate_width(event.size.width)
-        self.log.info(f"{event.size.width - self.STATIC_WIDTH - self.total_padding=}")
-        self.log.info(f"{new_width=}")
-        if self._previous_width != new_width:
-            self._previous_width = new_width
-            self.columns[ColumnKey("1")].width = new_width
-            self.refresh()
-
-
-class PersistedTable(DataTable[Any]):
-    """A `DataTable` for `usbipd` persisted device information."""
-
-    COL1_MIN_WIDTH = 20
-    COL1_MAX_WIDTH = 36
-    COL2_WIDTH = 20
-    STATIC_WIDTH = COL2_WIDTH
-
-    _previous_width = COL1_MIN_WIDTH
-
-    @property
-    def total_padding(self) -> int:
-        """"""
-        return self.cell_padding * 2 * 2
-
-    @lru_cache(maxsize=32)
-    def calculate_width(self, width: int) -> int:
-        """"""
-        dynamic_width = width - self.STATIC_WIDTH - self.total_padding
-        dynamic_width = max(dynamic_width, self.COL1_MIN_WIDTH)
-        return min(dynamic_width, self.COL1_MAX_WIDTH)
-
-    def on_mount(self) -> None:
-        """"""
-        initial_width = self.calculate_width(self.size.width)
-        self.add_column("DESCRIPTION", width=initial_width, key="1")
-        self.add_column("GUID", width=self.COL2_WIDTH, key="2")
-        if self.COL1_MIN_WIDTH != initial_width:
-            self._previous_width = initial_width
+        static_columns = zip(self.static_labels, self.static_widths)
+        for key, (label, width) in enumerate(static_columns, start=2):
+            self.add_column(label, width=width, key=str(key))
+        
+        self.focus()
     
     @work(exclusive=True)
     async def on_resize(self, event: events.Resize) -> None:
         """"""
         await asyncio.sleep(0.1)
         new_width = self.calculate_width(event.size.width)
-
+        self.log.info(f"{new_width=}, {self.static_total_width}, {self.total_padding}")
         if self._previous_width != new_width:
             self._previous_width = new_width
             self.columns[ColumnKey("1")].width = new_width
+            self.refresh_column(0)
+            self.refresh(layout=True)
+
+
+class AutoAttachedTable(DynamicWidthTable):
+    """A `DataTable` for `usbipd` auto-attached devices."""
+
+    def __init__(self, **kwargs) -> None:
+        """"""
+        super().__init__(
+            dynamic_min=20,
+            dynamic_max=40,
+            dynamic_label="DESCRIPTION",
+            static_widths=(15,),
+            static_labels=("SERIAL",),
+            **kwargs
+        )
+
+
+class ConnectedTable(DynamicWidthTable):
+    """A `DataTable` for `usbipd` connected device output."""
+
+    def __init__(self, **kwargs) -> None:
+        """"""
+        super().__init__(
+            dynamic_min=15,
+            dynamic_max=40,
+            dynamic_label="DESCRIPTION",
+            static_widths=(5, 7, 5, 8),
+            static_labels=("BUSID", "VID:PID", "BOUND", "ATTACHED"),
+            **kwargs
+        )
+
+
+class PersistedTable(DynamicWidthTable):
+    """A `DataTable` for `usbipd` persisted device information."""
+
+    def __init__(self, **kwargs) -> None:
+        """"""
+        super().__init__(
+            dynamic_min=20,
+            dynamic_max=36,
+            dynamic_label="DESCRIPTION",
+            static_widths=(20,),
+            static_labels=("GUID",),
+            **kwargs
+        )
 
 
 class TUIHeader(Horizontal):
@@ -161,8 +177,9 @@ class TUINavigation(Widget):
         """"""
         with TabbedContent(id="nav-content"):
             with TabPane("Connected", id="nav-connected"):
-                yield DeviceTable(cursor_type="none", id="table-connected")
+                yield ConnectedTable(cursor_type="none", id="table-connected")
             with TabPane("Persisted", id="nav-persisted"):
                 yield PersistedTable(cursor_type="none", id="table-persisted")
             with TabPane("Auto-attach", id="nav-autoattach"):
                 yield AutoAttachedTable(cursor_type="none", id="table-autoattach")
+
