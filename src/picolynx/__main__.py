@@ -4,6 +4,7 @@ import asyncio
 import contextvars
 import ctypes
 import logging
+from operator import eq
 import threading
 import sys
 from asyncio.windows_events import NULL
@@ -549,7 +550,6 @@ class TUI(App):
         Returns:
             _description_
         """
-        self.__log.info("Triggering incremental device update")
         self.incremental_device_update()
 
     def handle_wm_events(self, wparam: DBCEvent, name: str) -> None:
@@ -568,7 +568,6 @@ class TUI(App):
 
     def incremental_device_update(self) -> None:
         """"""
-        self.__log.info("Incremental `DataTable` update")
 
         current_connections = {
             dev.busid: dev for dev in run_usbipd_state() if dev.busid
@@ -577,12 +576,10 @@ class TUI(App):
         new_busids  = set(current_connections.keys())
         old_busids = set(self._connection_cache.keys())
 
-        updated_busids = set()
-        for busid in old_busids.intersection(new_busids):
-            # pydantic model comparison
-            if self._connection_cache[busid] != current_connections[busid]:
-                updated_busids.add(busid)
-                self.__log.info(f"Detected device update @ {busid=}")
+        updated_busids = {
+            busid for busid in old_busids.intersection(new_busids)
+            if self._connection_cache[busid] != current_connections[busid]
+        }
 
         # removed devices
         for busid in old_busids.difference(new_busids):
@@ -590,25 +587,34 @@ class TUI(App):
                 self.table_connected.remove_row(busid)
                 if self.table_persisted.rows.get(RowKey(busid)):
                     self.table_persisted.remove_row(busid)
-                self.__log.info(f"Removed row @ {busid=}")
             except KeyError as e:
-                self.__log.warning(f"Missing row @ {busid=}", exc_info=True)
+                self.__log.warning(f"Missing row @ `{busid}`", exc_info=True)
 
         # added devices
         for busid in new_busids.difference(old_busids):
             new_device = current_connections[busid]
             con_row = self.get_connected_row(new_device)
             self.table_connected.add_row(*con_row, key=busid)
-            per_row = self.get_persisted_row(new_device)
-            self.table_persisted.add_row(*per_row, key=busid)
-            self.__log.info(f"Added row @ {busid=}")
+            if new_device.isbound:
+                per_row = self.get_persisted_row(new_device)
+                self.table_persisted.add_row(*per_row, key=busid)
 
         # updated devices
         for busid in updated_busids:
-            row = self.get_connected_row(current_connections[busid])
-            for key, value in enumerate(row, start=1):
+            con_row = self.get_connected_row(current_connections[busid])
+            for key, value in enumerate(con_row, start=1):
                 self.table_connected.update_cell(busid, str(key), value)
-            self.__log.info(f"Updated row @ {busid=}")
+
+            updated_device = current_connections[busid]
+            if (
+                not self.table_persisted.rows.get(RowKey(busid)) and
+                updated_device.isbound
+            ):
+                per_row = self.get_persisted_row(updated_device)
+                self.table_persisted.add_row(*per_row, key=busid)
+            elif self.table_persisted.rows.get(RowKey(busid)):
+                self.table_persisted.remove_row(busid)
+
         self._connection_cache = current_connections
     
     def initial_populate_devices(self) -> None:
