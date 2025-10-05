@@ -7,6 +7,7 @@ from ._commands import (
     run_usbipd_bind,
     run_usbipd_detach,
     run_usbipd_state,
+    run_usbipd_unbind,
     run_wsl_list
 )
 
@@ -18,5 +19,6 @@ __all__ = (
     "run_usbipd_bind",
     "run_usbipd_detach",
     "run_usbipd_state",
+    "run_usbipd_unbind",
     "run_wsl_list"
 )

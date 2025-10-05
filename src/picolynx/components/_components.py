@@ -10,8 +10,8 @@ from textual import events, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widget import Widget
-from textual.widgets import DataTable, Label, TabbedContent, TabPane
-from textual.widgets.data_table import Column, ColumnKey
+from textual.widgets import DataTable, Footer, Label, TabbedContent, TabPane
+from textual.widgets.data_table import ColumnKey, RowKey
 
 from picolynx import __version__
 
@@ -59,6 +59,7 @@ class DynamicWidthTable(DataTable[Any]):
                 "Length mismatch between `static_labels` & `static_widths`"
             )
         self._static_labels = static_labels
+        self._row_selected = None
         super().__init__(**kwargs)
 
     @property
@@ -77,19 +78,23 @@ class DynamicWidthTable(DataTable[Any]):
         return self._dynamic_min
     
     @property
+    def row_selected_key(self) -> RowKey | None:
+        return self._row_selected_key
+
+    @property
     def static_count(self) -> int:
         """"""
         return self._static_count
 
     @property
-    def static_total_width(self) -> int:
-        """"""
-        return self._static_width
-
-    @property
     def static_labels(self) -> tuple[str, ...]:
         """"""
         return self._static_labels
+
+    @property
+    def static_total_width(self) -> int:
+        """"""
+        return self._static_width
     
     @property
     def static_widths(self) -> tuple[int, ...]:
@@ -100,7 +105,7 @@ class DynamicWidthTable(DataTable[Any]):
     def total_padding(self) -> int:
         """Total padding size for total"""
         return self.cell_padding * len(self.columns) * 2
-    
+
     @lru_cache(maxsize=32)
     def calculate_width(self, width: int) -> int:
         """"""
@@ -113,6 +118,14 @@ class DynamicWidthTable(DataTable[Any]):
         new_width = self.calculate_width(self.size.width)
         if self.update_previous_width(new_width):
             self.columns[ColumnKey("1")].width = new_width
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handles `DataTable` row selection events.
+
+        Args:
+            event: `RowSelected` event message.
+        """
+        self._row_selected_key = event.row_key
 
     def on_mount(self) -> None:
         """"""
@@ -179,7 +192,7 @@ class ConnectedTable(DynamicWidthTable):
             dynamic_min=15,
             dynamic_max=45,
             dynamic_label="DESCRIPTION",
-            static_widths=(5, 7, 5, 8),
+            static_widths=(5, 9, 5, 8),
             static_labels=("BUSID", "VID:PID", "BOUND", "ATTACHED"),
             **kwargs
         )
@@ -194,11 +207,15 @@ class PersistedTable(DynamicWidthTable):
             dynamic_min=20,
             dynamic_max=40,
             dynamic_label="DESCRIPTION",
-            static_widths=(20,),
+            static_widths=(36,),
             static_labels=("GUID",),
             **kwargs
         )
 
+
+class TUIFooter(Footer):
+    """"""
+    pass
 
 class TUIHeader(Horizontal):
     """TUI header widget."""
@@ -218,7 +235,7 @@ class TUINavigation(Widget):
         """"""
         with TabbedContent(id="nav-content"):
             with TabPane("Connected", id="nav-connected"):
-                yield ConnectedTable(cursor_type="none", id="table-connected")
+                yield ConnectedTable(cursor_type="row", id="table-connected")
             with TabPane("Persisted", id="nav-persisted"):
                 yield PersistedTable(cursor_type="none", id="table-persisted")
             with TabPane("Auto-attach", id="nav-autoattach"):

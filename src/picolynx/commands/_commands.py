@@ -230,6 +230,38 @@ def run_usbipd_state() -> list[USBIPDDevice]:
     return []
     
 
+def run_usbipd_unbind(busid: str) -> None:
+    """Unregisters a USB device for sharing.
+
+    Args:
+        busid: Device BUSID.
+
+    Raises:
+       USBIPDError: On `usbipd bind` failure.
+    """
+    try:
+        usbipd_attach = subprocess.Popen(
+            ["usbipd", "unbind", "--busid", busid],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            shell=False,
+        )
+    except FileNotFoundError as e:
+        __log.fatal("`usbipd` is not installed", exc_info=True)
+        raise USBIPDError("Missing `usbipd`: `winget install usbipd`") from e
+
+    try:
+        stdout, stderr = usbipd_attach.communicate(timeout=5)
+        __log.info(stdout or stderr)
+        if usbipd_attach.returncode:
+            raise USBIPDError(stdout or stderr)
+    except subprocess.TimeoutExpired as e:
+        usbipd_attach.kill()
+        raise USBIPDError from e
+    else:
+        __log.info(f"Unregistered device @ BUSID {busid}")
+
 
 def run_wsl_list(running: bool = True) -> tuple[str, ...]:
     """Lists running WSL distributions.
