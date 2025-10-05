@@ -7,12 +7,14 @@ import logging
 import threading
 import sys
 from asyncio.windows_events import NULL
+from collections import defaultdict
 from contextvars import ContextVar
 from ctypes import wintypes
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import lru_cache
-from typing import Callable, ClassVar, Optional, TYPE_CHECKING
+from threading import Lock
+from typing import Callable, ClassVar, Optional, TYPE_CHECKING, TypeAlias
 
 import win32api
 import win32con
@@ -36,6 +38,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
 from textual.containers import Container
+from textual.widgets.data_table import RowKey
 from textual.logging import TextualHandler
 from textual.message import Message
 from textual.reactive import reactive
@@ -43,6 +46,8 @@ from textual._path import CSSPathType
 from win32ctypes.pywin32 import pywintypes
 
 logging.basicConfig(level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),))
+
+LockCache: TypeAlias = defaultdict[str, threading.Lock]
 
 LRESULT = ctypes.c_ssize_t
 UMSG = ctypes.c_uint
@@ -76,6 +81,12 @@ class USBIF(IntEnum):
 
 @dataclass
 class USBIPDAttachDevice(Message):
+    """Device information message for `usbipd attach` command."""
+
+    device: USBIPDDevice
+
+@dataclass
+class USBIPDBindDevice(Message):
     """Device information message for `usbipd attach` command."""
 
     device: USBIPDDevice
@@ -366,9 +377,10 @@ class TUI(App):
     """Main application TUI."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        ("a", "manual_attach", "usbipd attach"),
-        ("d", "manual_detach", "usbipd detach"),
-        ("u", "manual_unbind", "usbipd unbind"),
+        ("a", "manual_attach", "attach"),
+        ("b", "manual_bind", "bind"),
+        ("d", "manual_detach", "detach"),
+        ("u", "manual_unbind", "unbind"),
     ]
 
     CSS_PATH: ClassVar[CSSPathType | None] = "app.tcss"
@@ -377,14 +389,14 @@ class TUI(App):
         """Initialises TUI App."""
         super().__init__()
         self._connection_cache: dict[str, USBIPDDevice] = {}
-        self._usbipd_lock_map: dict[str, threading.Lock] = {}
+        self._usbipd_lock_map: LockCache = defaultdict(threading.Lock)
         self._thread_lock: threading.Lock = threading.Lock()
         self._thread_exit: threading.Event = threading.Event()
         self.__log = logging.getLogger(self.__class__.__name__)
         self.__log.setLevel(log_level)
 
     @property
-    def usbipd_lock_map(self) -> dict[str, threading.Lock]:
+    def usbipd_lock_map(self) -> LockCache:
         """Property for device threading lock."""
         return self._usbipd_lock_map
 
@@ -410,34 +422,48 @@ class TUI(App):
         """Property for threading lock."""
         return self._thread_lock
 
+    def device_from_selected(
+            self, row_key: RowKey | None
+        ) -> USBIPDDevice | None:
+        """Retrieves device from the cache using selected row busid key.
+
+        Args:
+            row_key: The `RowKey` for the selected `DataTable` row, which is
+                set to the Bus ID of a device.
+
+        Returns:
+            A `USBIPDDevice`, if busid was in the cache or `None`.
+        """
+        if row_key and isinstance(row_key.value, str):
+                return self._connection_cache.get(row_key.value)
+        return None
+
     def action_manual_attach(self) -> None:
         """"""
-        if row_key := self.table_connected.row_selected_key:
-            key_value = row_key.value
-            if key_value and key_value in self._connection_cache:
-                self.__log.info(f"Manual attach @ BUSID {key_value}")
-                self.post_message(
-                    USBIPDAttachDevice(self._connection_cache[key_value])
-                )
+        selected_row_key = self.table_connected.row_selected_key
+        if device := self.device_from_selected(selected_row_key):
+            self.__log.info(f"Manual attach @ BUSID {device.busid}")
+            self.post_message(USBIPDAttachDevice(device))
+
+    def action_manual_bind(self) -> None:
+        """"""
+        selected_row_key = self.table_connected.row_selected_key
+        if device := self.device_from_selected(selected_row_key):
+            self.__log.info(f"Manual bind @ BUSID {device.busid}")
+            self.post_message(USBIPDBindDevice(device))
     
     def action_manual_detach(self) -> None:
-        if row_key := self.table_connected.row_selected_key:
-            key_value = row_key.value
-            if key_value and key_value in self._connection_cache:
-                self.__log.info(f"Manual detach @ BUSID {key_value}")
-                self.post_message(
-                    USBIPDDetachDevice(self._connection_cache[key_value])
-                )
+        selected_row_key = self.table_connected.row_selected_key
+        if device := self.device_from_selected(selected_row_key):
+            self.__log.info(f"Manual detach @ BUSID {device.busid}")
+            self.post_message(USBIPDDetachDevice(device))
 
     def action_manual_unbind(self) -> None:
         """"""
-        if row_key := self.table_connected.row_selected_key:
-            key_value = row_key.value
-            if key_value and key_value in self._connection_cache:
-                self.__log.info(f"Manual unbind @ BUSID {key_value}")
-                self.post_message(
-                    USBIPDUnbindDevice(self._connection_cache[key_value])
-                )
+        selected_row_key = self.table_connected.row_selected_key
+        if device := self.device_from_selected(selected_row_key):
+            self.__log.info(f"Manual unbind @ BUSID {device.busid}")
+            self.post_message(USBIPDUnbindDevice(device))
 
     def compose(self) -> ComposeResult:
         yield TUIHeader(id="header")
@@ -484,6 +510,16 @@ class TUI(App):
         """
         if not msg.device.isattached:
             self.worker_attach_device(msg)
+
+    @on(USBIPDBindDevice)
+    def handle_bind_device(self, msg: USBIPDBindDevice) -> None:
+        """Forwards `USBIPDAttachDevice` messages to a dedicated worker.
+        
+        Args:
+            msg: A `USBIPDAttachDevice` message.
+        """
+        if not msg.device.isattached:
+            self.worker_bind_device(msg)
     
     @on(USBIPDDetachDevice)
     def handle_detach_device(self, msg: USBIPDDetachDevice) -> None:
@@ -552,6 +588,8 @@ class TUI(App):
         for busid in old_busids.difference(new_busids):
             try:
                 self.table_connected.remove_row(busid)
+                if self.table_persisted.rows.get(RowKey(busid)):
+                    self.table_persisted.remove_row(busid)
                 self.__log.info(f"Removed row @ {busid=}")
             except KeyError as e:
                 self.__log.warning(f"Missing row @ {busid=}", exc_info=True)
@@ -559,8 +597,10 @@ class TUI(App):
         # added devices
         for busid in new_busids.difference(old_busids):
             new_device = current_connections[busid]
-            row = self.get_connected_row(new_device)
-            self.table_connected.add_row(*row, key=busid)
+            con_row = self.get_connected_row(new_device)
+            self.table_connected.add_row(*con_row, key=busid)
+            per_row = self.get_persisted_row(new_device)
+            self.table_persisted.add_row(*per_row, key=busid)
             self.__log.info(f"Added row @ {busid=}")
 
         # updated devices
@@ -570,9 +610,6 @@ class TUI(App):
                 self.table_connected.update_cell(busid, str(key), value)
             self.__log.info(f"Updated row @ {busid=}")
         self._connection_cache = current_connections
-
-        self.table_connected.cursor_type = "none"
-        self.table_connected.cursor_type = "row"
     
     def initial_populate_devices(self) -> None:
         """"""
@@ -606,9 +643,7 @@ class TUI(App):
         # mitigate `usbipd_lock_map` race condition
         with self.thread_lock:
             # dict CRUD is now atomic
-            usbipd_lock = self.usbipd_lock_map.setdefault(
-                device.busid, threading.Lock()
-            )
+            usbipd_lock = self.usbipd_lock_map[device.busid]
 
         # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
         if not usbipd_lock.acquire(blocking=False):
@@ -635,6 +670,48 @@ class TUI(App):
         finally:
             usbipd_lock.release()
             self.incremental_device_update()
+    
+    @work(thread=True)
+    def worker_bind_device(self, msg: USBIPDBindDevice) -> None:
+        """Handles blocking `run_usbipd_bind` calls.
+
+        Args:
+            msg: Device information message for `usbipd` commands.
+        """
+        device = msg.device
+        if not device.busid:
+            return
+ 
+        # mitigate `usbipd_lock_map` race condition
+        with self.thread_lock:
+            # dict CRUD is now atomic
+            usbipd_lock = self.usbipd_lock_map[device.busid]
+
+        # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
+        if not usbipd_lock.acquire(blocking=False):
+            # return early if lock is already held
+            return
+
+        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
+        try:
+            for connected_device in run_usbipd_state():
+                match connected_device:
+                    # `busid` matches, but device is not bound or attached
+                    case USBIPDDevice(busid=device.busid, isbound=False):
+                        run_usbipd_bind(device.busid)
+                        run_usbipd_attach(device.busid)
+                        break
+                    # `busid` matches, but device is bound & not attached
+                    case USBIPDDevice(busid=device.busid, isattached=False):
+                        self.__log.info("Device already bound & attached")
+                        break
+                    case _:
+                        continue
+        except USBIPDError as e:
+            self.__log.exception(e)
+        finally:
+            usbipd_lock.release()
+            self.incremental_device_update()
 
     @work(thread=True)
     def worker_detach_device(self, msg: USBIPDDetachDevice) -> None:
@@ -650,9 +727,7 @@ class TUI(App):
         # mitigate `device_locks` dict race condition
         with self.thread_lock:
             # dict CRUD is now atomic
-            usbipd_lock = self.usbipd_lock_map.setdefault(
-                device.busid, threading.Lock()
-            )
+            usbipd_lock = self.usbipd_lock_map[device.busid]
 
         # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
         if not usbipd_lock.acquire(blocking=False):
@@ -722,6 +797,7 @@ class TUI(App):
         finally:
             usbipd_lock.release()
             self.incremental_device_update()
+
 
 if __name__ == "__main__":
     if not is_administrator():

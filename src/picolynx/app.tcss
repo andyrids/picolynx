@@ -22,7 +22,7 @@
     width: 100%
 }
 
-# Generic styling for all DataTable widgets
+# generic styling for all `DataTable` widgets
 DataTable {
     border: none;
     background: $background;
@@ -33,14 +33,16 @@ DataTable {
     overflow-y: scroll;
     padding: 0;
     width: 100%;
-    
-    &:focus {
-        background-tint: $background 100%;
-    }
-    & > .datatable--header {
+    # maintain constant `DataTable` header styling 
+    & > .datatable--header, .datatable--header-hover {
         background: $surface;
         color: $text-success;
     }
+
+    &:focus {
+        background-tint: $background 100%;
+    }
+
     &:focus > .datatable--header {
         background: $surface;
         background-tint: $surface 100%;
