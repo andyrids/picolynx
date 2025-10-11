@@ -869,7 +869,8 @@ class TUI(App):
             self.incremental_device_update()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Main application entry."""
     if not is_administrator():
         # a nonzero value is considered 'abnormal' termination
         sys.exit(NULL) if run_as_administrator() else sys.exit(1)
@@ -880,3 +881,7 @@ if __name__ == "__main__":
         pass
     finally:
         pass
+
+
+if __name__ == "__main__":
+    main()

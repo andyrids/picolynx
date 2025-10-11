@@ -1,6 +1,6 @@
 [project]
 name = "picolynx"
-description = "Auto-attach Raspberry Pi devices to WSL."
+description = "Auto-attach microcontrollers to WSL."
 authors = [{name = "Andrew Ridyard", email = "andyrids.uncapped698@passmail.net"}]
 maintainers = [{name = "Andrew Ridyard", email = "andyrids.uncapped698@passmail.net"}]
 dynamic = ["version"]
@@ -49,6 +49,9 @@ dev = [
 [project.urls]
 Repository = "https://github.com/andyrids/picolynx"
 Issues = "https://github.com/andyrids/picolynx/-/issues"
+
+[project.scripts]
+picolynx = "picolynx.__main__:main"
 
 [tool.ruff]
 exclude = ["lib", "env"]
