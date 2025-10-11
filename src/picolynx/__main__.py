@@ -4,18 +4,25 @@ import asyncio
 import contextvars
 import ctypes
 import logging
-from operator import eq
 import threading
 import sys
 from asyncio.windows_events import NULL
 from collections import defaultdict
+from contextlib import contextmanager
 from contextvars import ContextVar
 from ctypes import wintypes
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntEnum
 from functools import lru_cache
-from threading import Lock
-from typing import Callable, ClassVar, Optional, TYPE_CHECKING, TypeAlias
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    ClassVar,
+    Generator,
+    TypeAlias,
+    TypeVar,
+    Union,
+)
 
 import win32api
 import win32con
@@ -26,7 +33,11 @@ import winerror
 from picolynx import __version__
 from picolynx.commands import *
 from picolynx.components import (
-    ConnectedTable, PersistedTable, TUIFooter, TUIHeader, TUINavigation
+    ConnectedTable,
+    PersistedTable,
+    TUIFooter,
+    TUIHeader,
+    TUINavigation,
 )
 from picolynx.exceptions import USBIPDError, WSLError
 from picolynx.utility import LOG_FMT, is_administrator
@@ -46,7 +57,9 @@ from textual.reactive import reactive
 from textual._path import CSSPathType
 from win32ctypes.pywin32 import pywintypes
 
-logging.basicConfig(level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),))
+logging.basicConfig(
+    level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),)
+)
 
 LockCache: TypeAlias = defaultdict[str, threading.Lock]
 
@@ -81,30 +94,39 @@ class USBIF(IntEnum):
 
 
 @dataclass
-class USBIPDAttachDevice(Message):
-    """Device information message for `usbipd attach` command."""
-
-    device: USBIPDDevice
-
-@dataclass
-class USBIPDBindDevice(Message):
+class USBIPDAttach(Message):
     """Device information message for `usbipd attach` command."""
 
     device: USBIPDDevice
 
 
 @dataclass
-class USBIPDDetachDevice(Message):
+class USBIPDBind(Message):
+    """Device information message for `usbipd attach` command."""
+
+    device: USBIPDDevice
+
+
+@dataclass
+class USBIPDDetach(Message):
     """Device information message for `usbipd detach` command."""
 
     device: USBIPDDevice
 
 
 @dataclass
-class USBIPDUnbindDevice(Message):
+class USBIPDUnbind(Message):
     """Device information message for `usbipd unbind` command."""
 
     device: USBIPDDevice
+
+
+USBIPDMessage: TypeAlias = Union[
+    USBIPDAttach, USBIPDBind, USBIPDDetach, USBIPDUnbind
+]
+
+# type variable M is bound to USBIPDMessage
+M = TypeVar("M", bound=USBIPDMessage)
 
 
 @dataclass
@@ -117,17 +139,17 @@ class WMDeviceChange(Message):
 
 class DeviceNotifier:
     """Notifies TUI of Windows device changes.
-    
+
     Creates a hidden window, a window procedure, a dedicated thread for the
     message pump, and manages thread-safe communication back to the asyncio
     event loop for the TUI app.
     """
 
     def __init__(
-            self,
-            loop: asyncio.AbstractEventLoop,
-            callback: Callable[[DBCEvent, str], None]
-        ) -> None:
+        self,
+        loop: asyncio.AbstractEventLoop,
+        callback: Callable[[DBCEvent, str], None],
+    ) -> None:
         """Initialises the `DeviceNotifier` class.
 
         Args:
@@ -142,7 +164,7 @@ class DeviceNotifier:
         self._hwnd_ready = threading.Event()
         self._hwnd = None
         self._log = logging.getLogger(self.__class__.__name__)
-    
+
     @property
     def callback(self) -> Callable[[DBCEvent, str], None]:
         """Message callback function property."""
@@ -152,7 +174,7 @@ class DeviceNotifier:
     def hwnd(self) -> int | None:
         """Window handle property."""
         return self._hwnd
-    
+
     @hwnd.deleter
     def hwnd(self) -> None:
         """Deletes the window handle property."""
@@ -182,8 +204,8 @@ class DeviceNotifier:
         return self._thread
 
     def call_soon_threadsafe(
-            self, callback: Callable[[DBCEvent, str], None], *args
-        ) -> None:
+        self, callback: Callable[[DBCEvent, str], None], *args
+    ) -> None:
         """Schedules a function call on the running event loop.
 
         Args:
@@ -194,23 +216,20 @@ class DeviceNotifier:
 
     def start(self) -> None:
         """Starts the `message_pump` thread.
-        
+
         Raises:
             RuntimeError: On failure to start `win32gui.PumpMessages`.
         """
-        # self.log.info("Starting `win32gui.PumpMessages`")
         self.thread.start()
         if not self._hwnd_ready.wait(timeout=5):
             raise RuntimeError("Failed to start `win32gui.PumpMessages`")
 
     def stop(self) -> None:
         """Stops the `message_pump` thread & initiates cleanup actions.
-        
-        1. Post `WM_CLOSE` message
-        2. on `WM_CLOSE` -> `win32gui.DestroyWindow()`
-        2. on `WM_DESTROY` -> `win32gui.PostQuitMessage(0)`
+
+        `WM_CLOSE` -> `win32gui.DestroyWindow()` -> `WM_DESTROY` ->
+        `win32gui.PostQuitMessage(0)` -> `WM_QUIT`.
         """
-        # self.log.info("Stopping `win32gui.PumpMessages`")
         if self.hwnd is not None:
             win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, NULL, NULL)
             self.thread.join(timeout=5)
@@ -229,17 +248,17 @@ class DeviceNotifier:
         class_atom = win32gui.RegisterClass(wc)
         # create a new window
         self.hwnd = win32gui.CreateWindow(
-            class_atom, # class name
-            "Device Change Demo", # window title
-            NULL, # style
-            NULL, # x
-            NULL, # y
-            win32con.CW_USEDEFAULT, # width
-            win32con.CW_USEDEFAULT, # height
-            NULL, # parent
-            NULL, # menu
-            hinst, # hinstance
-            None # reserved
+            class_atom,  # class name
+            "Device Change Demo",  # window title
+            NULL,  # style
+            NULL,  # x
+            NULL,  # y
+            win32con.CW_USEDEFAULT,  # width
+            win32con.CW_USEDEFAULT,  # height
+            NULL,  # parent
+            NULL,  # menu
+            hinst,  # hinstance
+            None,  # reserved
         )
 
     def message_pump(self) -> None:
@@ -255,14 +274,10 @@ class DeviceNotifier:
             self._hwnd = None
 
     def window_proc(
-            self,
-            hwnd: int,
-            umsg: int,
-            wparam: int,
-            lparam: int
-        ) -> int:
+        self, hwnd: int, umsg: int, wparam: int, lparam: int
+    ) -> int:
         """Processes Windows messages from the `message_pump`.
-        
+
         Args:
             hwnd: A handle to the window class.
 
@@ -288,12 +303,8 @@ class DeviceNotifier:
             return win32gui.DefWindowProc(hwnd, umsg, wparam, lparam)
 
     def process_cleanup(
-            self,
-            hwnd: int,
-            umsg: int,
-            wparam: int,
-            lparam: int
-        ) -> None:
+        self, hwnd: int, umsg: int, wparam: int, lparam: int
+    ) -> None:
         """Runs cleanup actions on `WM_CLOSE` & `WM_DESTROY` messages.
 
         Args:
@@ -318,11 +329,8 @@ class DeviceNotifier:
                 self.log.debug("Unexpected `umsg`")
 
     def process_device_change(
-            self,
-            umsg: int,
-            wparam: int,
-            lparam: int
-        ) -> None:
+        self, umsg: int, wparam: int, lparam: int
+    ) -> None:
         """Processes `WM_DEVICECHANGE` messages.
 
         Callbacks are scheduled on the main asyncio loop via the
@@ -344,22 +352,20 @@ class DeviceNotifier:
             self.log.info(f"`WM_DEVICECHANGE` - {wparam=:04X}, {lparam=:04X}")
 
             def post_devtype_port_message(
-                    wparam: DBCEvent, lparam: int
-                ) -> None:
+                wparam: DBCEvent, lparam: int
+            ) -> None:
                 """Calls TUI callback if device type is `DBT_DEVTYP_PORT`."""
                 hdr = DEV_BROADCAST_HDR.from_address(lparam)
                 if hdr.dbch_devicetype == DBCDeviceType.DBT_DEVTYP_PORT:
                     interface = DEV_BROADCAST_PORT_W.from_address(lparam)
                     dbcp_name = ctypes.wstring_at(
-                        ctypes.addressof(interface) +
-                        DEV_BROADCAST_PORT_W.dbcp_name.offset
+                        ctypes.addressof(interface)
+                        + DEV_BROADCAST_PORT_W.dbcp_name.offset
                     )
                     if not callable(self.callback):
                         self.log.error("Callback attribute is not callable")
                         return
-                    self.call_soon_threadsafe(
-                        self.callback, wparam, dbcp_name
-                    )
+                    self.call_soon_threadsafe(self.callback, wparam, dbcp_name)
 
             match wparam:
                 case DBCEvent.DBT_DEVNODES_CHANGED:
@@ -374,8 +380,65 @@ class DeviceNotifier:
             self.log.exception(e)
 
 
+@contextmanager
+def acquire_usbipd_lock(lock: threading.Lock) -> Generator[bool, None, None]:
+    """Handles a thread Lock, indicating if successfully acquired.
+
+    Args:
+        lock: A `Lock` object.
+
+    Yields:
+        `True` if the `Lock` was acquired else `False`.
+    """
+    acquired = lock.acquire(blocking=False)
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            lock.release()
+
+
+def with_device_lock(
+    func: Callable[["TUI", M], None],
+) -> Callable[["TUI", M], None]:
+    """Decorates a TUI method for device lock acquisition.
+
+    Args:
+        func: The method to wrap, which takes a `USBIPDMessage` subclass.
+
+    Returns:
+        A wrapped method.
+    """
+
+    def wrapper(self: "TUI", msg: M) -> None:
+        """Wraps the passed TUI method.
+
+        Returns early if the `msg.device` has a `busid` that is None or if
+        the device `Lock` is not acquired.
+
+        Args:
+            self: `TUI` object.
+            msg: A message containing device information.
+
+        Returns:
+            A wrapped TUI method.
+        """
+        device = msg.device
+        if not device.busid:
+            return
+        with self.thread_lock:
+            usbipd_lock = self.usbipd_lock_map[device.busid]
+
+        with acquire_usbipd_lock(usbipd_lock) as acquired:
+            if not acquired:
+                return
+            return func(self, msg)
+
+    return wrapper
+
+
 class TUI(App):
-    """Main application TUI."""
+    """Main TUI application."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("a", "manual_attach", "attach"),
@@ -387,7 +450,12 @@ class TUI(App):
     CSS_PATH: ClassVar[CSSPathType | None] = "app.tcss"
 
     def __init__(self, log_level: int = logging.INFO) -> None:
-        """Initialises TUI App."""
+        """Initialises TUI App.
+
+        Args:
+           log_level: Sets the TUI logging level. Defaults to
+            `logging.INFO` (20).
+        """
         super().__init__()
         self._connection_cache: dict[str, USBIPDDevice] = {}
         self._usbipd_lock_map: LockCache = defaultdict(threading.Lock)
@@ -417,15 +485,15 @@ class TUI(App):
     def table_persisted(self) -> PersistedTable:
         """Property for Windows events `DataTable` widget."""
         return self.query_one("#table-persisted", PersistedTable)
-    
+
     @property
     def thread_lock(self) -> threading.Lock:
         """Property for threading lock."""
         return self._thread_lock
 
     def device_from_selected(
-            self, row_key: RowKey | None
-        ) -> USBIPDDevice | None:
+        self, row_key: RowKey | None
+    ) -> USBIPDDevice | None:
         """Retrieves device from the cache using selected row busid key.
 
         Args:
@@ -436,37 +504,39 @@ class TUI(App):
             A `USBIPDDevice`, if busid was in the cache or `None`.
         """
         if row_key and isinstance(row_key.value, str):
-                return self._connection_cache.get(row_key.value)
+            return self._connection_cache.get(row_key.value)
         return None
 
     def action_manual_attach(self) -> None:
-        """"""
+        """Triggers device attachment on `manual_attach` action."""
         selected_row_key = self.table_connected.row_selected_key
         if device := self.device_from_selected(selected_row_key):
             self.__log.info(f"Manual attach @ BUSID {device.busid}")
-            self.post_message(USBIPDAttachDevice(device))
+            self.post_message(USBIPDAttach(device))
 
     def action_manual_bind(self) -> None:
-        """"""
+        """Triggers device binding on `manual_bind` action."""
         selected_row_key = self.table_connected.row_selected_key
         if device := self.device_from_selected(selected_row_key):
             self.__log.info(f"Manual bind @ BUSID {device.busid}")
-            self.post_message(USBIPDBindDevice(device))
-    
+            self.post_message(USBIPDBind(device))
+
     def action_manual_detach(self) -> None:
+        """Triggers device detach on `manual_detach` action."""
         selected_row_key = self.table_connected.row_selected_key
         if device := self.device_from_selected(selected_row_key):
             self.__log.info(f"Manual detach @ BUSID {device.busid}")
-            self.post_message(USBIPDDetachDevice(device))
+            self.post_message(USBIPDDetach(device))
 
     def action_manual_unbind(self) -> None:
         """"""
         selected_row_key = self.table_connected.row_selected_key
         if device := self.device_from_selected(selected_row_key):
             self.__log.info(f"Manual unbind @ BUSID {device.busid}")
-            self.post_message(USBIPDUnbindDevice(device))
+            self.post_message(USBIPDUnbind(device))
 
     def compose(self) -> ComposeResult:
+        """Composes the TUI widgets."""
         yield TUIHeader(id="header")
         with Container(id="container-main"):
             yield TUINavigation()
@@ -479,7 +549,7 @@ class TUI(App):
 
         self.initial_populate_devices()
 
-        running_loop = asyncio.get_running_loop()        
+        running_loop = asyncio.get_running_loop()
         self._notifier = DeviceNotifier(running_loop, self.handle_wm_events)
         self._notifier.start()
 
@@ -502,28 +572,28 @@ class TUI(App):
             Text(f"{device.persistedguid}", style=md, justify="center"),
         ]
 
-    @on(USBIPDAttachDevice)
-    def handle_attach_device(self, msg: USBIPDAttachDevice) -> None:
+    @on(USBIPDAttach)
+    def handle_attach_device(self, msg: USBIPDAttach) -> None:
         """Forwards `USBIPDAttachDevice` messages to a dedicated worker.
-        
+
         Args:
             msg: A `USBIPDAttachDevice` message.
         """
         if not msg.device.isattached:
             self.worker_attach_device(msg)
 
-    @on(USBIPDBindDevice)
-    def handle_bind_device(self, msg: USBIPDBindDevice) -> None:
+    @on(USBIPDBind)
+    def handle_bind_device(self, msg: USBIPDBind) -> None:
         """Forwards `USBIPDAttachDevice` messages to a dedicated worker.
-        
+
         Args:
             msg: A `USBIPDAttachDevice` message.
         """
         if not msg.device.isattached:
             self.worker_bind_device(msg)
-    
-    @on(USBIPDDetachDevice)
-    def handle_detach_device(self, msg: USBIPDDetachDevice) -> None:
+
+    @on(USBIPDDetach)
+    def handle_detach_device(self, msg: USBIPDDetach) -> None:
         """forwards messages to a dedicated worker.
 
         Args:
@@ -531,8 +601,8 @@ class TUI(App):
         """
         self.worker_detach_device(msg)
 
-    @on(USBIPDUnbindDevice)
-    def handle_unbind_device(self, msg: USBIPDUnbindDevice) -> None:
+    @on(USBIPDUnbind)
+    def handle_unbind_device(self, msg: USBIPDUnbind) -> None:
         """forwards messages to a dedicated worker.
 
         Args:
@@ -541,15 +611,8 @@ class TUI(App):
         self.worker_unbind_device(msg)
 
     @on(WMDeviceChange)
-    def handle_device_change(self, message: WMDeviceChange) -> None:
-        """_summary_
-
-        Args:
-            message: _description_
-
-        Returns:
-            _description_
-        """
+    def handle_device_change(self) -> None:
+        """Handles Windows device change messages."""
         self.incremental_device_update()
 
     def handle_wm_events(self, wparam: DBCEvent, name: str) -> None:
@@ -566,23 +629,37 @@ class TUI(App):
         except LookupError as e:
             self.__log.exception(e)
 
-    def incremental_device_update(self) -> None:
+    def _check_cache(self, device: USBIPDDevice) -> bool:
         """"""
+        return self._connection_cache.get(str(device.busid)) != device
 
-        current_connections = {
-            dev.busid: dev for dev in run_usbipd_state() if dev.busid
+    def incremental_device_update(self) -> None:
+        """Updates `DataTable` widgets to reflect device changes."""
+
+        connections = {d.busid: d for d in run_usbipd_state() if d.busid}
+
+        current = set(connections.keys())
+        previous = set(self._connection_cache.keys())
+
+        updated = {
+            busid
+            for busid in previous & current
+            if self._check_cache(connections[busid])
         }
 
-        new_busids  = set(current_connections.keys())
-        old_busids = set(self._connection_cache.keys())
+        self._update_removed_devices(previous - current)
+        self._update_added_devices(current - previous, connections)
+        self._update_modified_devices(updated, connections)
+        self._connection_cache = connections
 
-        updated_busids = {
-            busid for busid in old_busids.intersection(new_busids)
-            if self._connection_cache[busid] != current_connections[busid]
-        }
+    def _update_removed_devices(self, busids: set[str]) -> None:
+        """Removes rows in connected & persisted `DataTable` widgets.
 
+        Args:
+            busids: BUS ID values for removed devices.
+        """
         # removed devices
-        for busid in old_busids.difference(new_busids):
+        for busid in busids:
             try:
                 self.table_connected.remove_row(busid)
                 if self.table_persisted.rows.get(RowKey(busid)):
@@ -590,33 +667,48 @@ class TUI(App):
             except KeyError as e:
                 self.__log.warning(f"Missing row @ `{busid}`", exc_info=True)
 
+    def _update_added_devices(
+        self, busids: set[str], connections: dict[str, USBIPDDevice]
+    ) -> None:
+        """Adds rows in `DataTable` widgets for new device connections.
+
+        Args:
+            busids: BUS ID values for new devices.
+        """
         # added devices
-        for busid in new_busids.difference(old_busids):
-            new_device = current_connections[busid]
+        for busid in busids:
+            new_device = connections[busid]
             con_row = self.get_connected_row(new_device)
             self.table_connected.add_row(*con_row, key=busid)
             if new_device.isbound:
                 per_row = self.get_persisted_row(new_device)
                 self.table_persisted.add_row(*per_row, key=busid)
 
+    def _update_modified_devices(
+        self, busids: set[str], connections: dict[str, USBIPDDevice]
+    ) -> None:
+        """Updates rows in `DataTable` widgets for modified devices.
+
+        Args:
+            busids: BUS ID values for modified devices.
+        """
         # updated devices
-        for busid in updated_busids:
-            con_row = self.get_connected_row(current_connections[busid])
+        for busid in busids:
+            updated_device = connections[busid]
+
+            # update connected devices `DataTable` row
+            con_row = self.get_connected_row(updated_device)
             for key, value in enumerate(con_row, start=1):
                 self.table_connected.update_cell(busid, str(key), value)
 
-            updated_device = current_connections[busid]
-            if (
-                not self.table_persisted.rows.get(RowKey(busid)) and
-                updated_device.isbound
-            ):
-                per_row = self.get_persisted_row(updated_device)
-                self.table_persisted.add_row(*per_row, key=busid)
-            elif self.table_persisted.rows.get(RowKey(busid)):
+            row_in_persisted = self.table_persisted.rows.get(RowKey(busid))
+            if updated_device.isbound:
+                if not row_in_persisted:
+                    per_row = self.get_persisted_row(updated_device)
+                    self.table_persisted.add_row(*per_row, key=busid)
+            elif row_in_persisted:
                 self.table_persisted.remove_row(busid)
 
-        self._connection_cache = current_connections
-    
     def initial_populate_devices(self) -> None:
         """"""
         self.table_connected.clear()
@@ -636,28 +728,29 @@ class TUI(App):
         self.thread_exit.set()
 
     @work(thread=True)
-    def worker_attach_device(self, msg: USBIPDAttachDevice) -> None:
+    @with_device_lock
+    def worker_attach_device(self, msg: USBIPDAttach) -> None:
         """Handles blocking `run_usbipd_bind` & `run_usbipd_attach` calls.
 
         Args:
             msg: Device information message for `usbipd` commands.
         """
-        device = msg.device
-        if not device.busid:
+        if (device := msg.device).busid is None:
             return
- 
-        # mitigate `usbipd_lock_map` race condition
-        with self.thread_lock:
-            # dict CRUD is now atomic
-            usbipd_lock = self.usbipd_lock_map[device.busid]
-
-        # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
-        if not usbipd_lock.acquire(blocking=False):
-            # return early if lock is already held
+        
+        try:
+            active_distro = run_wsl_list()
+        except WSLError as e:
+            self.__log.error(e, exc_info=True)
+            self.notify(str(e), title="WSL Error", severity="error")
             return
 
         # mitigate `usbipd_bind` & `usbipd_attach` race conditions
         try:
+            if not active_distro:
+                self.notify("No active WSL distro", severity="warning")
+                return
+
             for connected_device in run_usbipd_state():
                 match connected_device:
                     # `busid` matches, but device is not bound or attached
@@ -672,30 +765,22 @@ class TUI(App):
                     case _:
                         continue
         except USBIPDError as e:
-            self.__log.exception(e)
+            self.__log.warning(e)
+            self.notify(str(e), title="USBIPD Error", severity="warning")
+        else:
+            self.notify(device.description, title="Attached")
         finally:
-            usbipd_lock.release()
             self.incremental_device_update()
-    
+
     @work(thread=True)
-    def worker_bind_device(self, msg: USBIPDBindDevice) -> None:
+    @with_device_lock
+    def worker_bind_device(self, msg: USBIPDBind) -> None:
         """Handles blocking `run_usbipd_bind` calls.
 
         Args:
             msg: Device information message for `usbipd` commands.
         """
-        device = msg.device
-        if not device.busid:
-            return
- 
-        # mitigate `usbipd_lock_map` race condition
-        with self.thread_lock:
-            # dict CRUD is now atomic
-            usbipd_lock = self.usbipd_lock_map[device.busid]
-
-        # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
-        if not usbipd_lock.acquire(blocking=False):
-            # return early if lock is already held
+        if (device := msg.device).busid is None:
             return
 
         # mitigate `usbipd_bind` & `usbipd_attach` race conditions
@@ -705,39 +790,30 @@ class TUI(App):
                     # `busid` matches, but device is not bound or attached
                     case USBIPDDevice(busid=device.busid, isbound=False):
                         run_usbipd_bind(device.busid)
-                        run_usbipd_attach(device.busid)
                         break
                     # `busid` matches, but device is bound & not attached
                     case USBIPDDevice(busid=device.busid, isattached=False):
-                        self.__log.info("Device already bound & attached")
+                        self.__log.info("Device is already bound")
                         break
                     case _:
                         continue
         except USBIPDError as e:
             self.__log.exception(e)
+            self.notify(str(e), title="USBIPD Error", severity="warning")
+        else:
+            self.notify(device.description, title="Bound")
         finally:
-            usbipd_lock.release()
             self.incremental_device_update()
 
     @work(thread=True)
-    def worker_detach_device(self, msg: USBIPDDetachDevice) -> None:
+    @with_device_lock
+    def worker_detach_device(self, msg: USBIPDDetach) -> None:
         """Handles blocking `run_usbipd_detach` calls.
 
         Args:
             msg: Device information message for `usbipd` commands.
         """
-        device = msg.device
-        if not device.busid:
-            return
-
-        # mitigate `device_locks` dict race condition
-        with self.thread_lock:
-            # dict CRUD is now atomic
-            usbipd_lock = self.usbipd_lock_map[device.busid]
-
-        # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
-        if not usbipd_lock.acquire(blocking=False):
-            # return early if lock is already held
+        if (device := msg.device).busid is None:
             return
 
         # mitigate `usbipd_bind` & `usbipd_attach` race conditions
@@ -750,58 +826,46 @@ class TUI(App):
                         break
                     # `busid` matches, but device is not attached
                     case USBIPDDevice(busid=device.busid, isattached=False):
-                        self.__log.info(f"Missing device @ BUSID {device.busid}")
+                        self.__log.warning("Device not found")
                         break
                     case _:
                         continue
         except USBIPDError as e:
             self.__log.exception(e)
+            self.notify(str(e), title="USBIPD Error", severity="warning")
+        else:
+            self.notify(device.description, title="Detached")
         finally:
-            usbipd_lock.release()
+            pass
 
     @work(thread=True)
-    def worker_unbind_device(self, msg: USBIPDUnbindDevice) -> None:
+    @with_device_lock
+    def worker_unbind_device(self, msg: USBIPDUnbind) -> None:
         """Handles blocking `run_usbipd_unbind` calls"""
 
-        device = msg.device
-        if not device.busid:
-            return
-
-        # mitigate `device_locks` dict race condition
-        with self.thread_lock:
-            # dict CRUD is now atomic
-            usbipd_lock = self.usbipd_lock_map.setdefault(
-                device.busid, threading.Lock()
-            )
-
-        # lock mitigates `usbipd_bind` & `usbipd_attach` race conditions
-        if not usbipd_lock.acquire(blocking=False):
-            # return early if lock is already held
+        if (device := msg.device).busid is None:
             return
 
         # mitigate `usbipd_bind` & `usbipd_attach` race conditions
         try:
             for connected_device in run_usbipd_state():
                 match connected_device:
-                    # `busid` matches, but device is bound & attached
-                    case USBIPDDevice(busid=device.busid, isattached=True):
-                        run_usbipd_detach(device.busid)
-                        run_usbipd_unbind(device.busid)
-                        break
-                    # `busid` matches, & device is bound
+                    # `busid` matches, & device is bound & possibly attached
                     case USBIPDDevice(busid=device.busid, isbound=True):
                         run_usbipd_unbind(device.busid)
                         break
                     # `busid` matches, but device is not bound
                     case USBIPDDevice(busid=device.busid, isbound=False):
-                        self.__log.info(f"Missing device @ BUSID {device.busid}")
+                        self.__log.warning("Device not found")
                         break
                     case _:
                         continue
         except USBIPDError as e:
             self.__log.exception(e)
+            self.notify(str(e), title="USBIPD Error", severity="warning")
+        else:
+            self.notify(device.description, title="Unbound")
         finally:
-            usbipd_lock.release()
             self.incremental_device_update()
 
 
@@ -816,4 +880,3 @@ if __name__ == "__main__":
         pass
     finally:
         pass
-        # run_usbipd_detach()

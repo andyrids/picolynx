@@ -1,4 +1,5 @@
 """"""
+
 import asyncio
 from typing import Any
 from textual import events, work
@@ -8,6 +9,7 @@ from textual.widgets import DataTable
 
 class DeviceTable(DataTable[Any]):
     """A `DataTable` for `usbipd` connected device output."""
+
     COL1_MIN_WIDTH = 20
     COL1_MAX_WIDTH = 40
     COL2_WIDTH = 5
@@ -29,12 +31,12 @@ class DeviceTable(DataTable[Any]):
         self.add_column("PID", width=self.COL4_WIDTH, key="4")
         self.add_column("BOUND", width=self.COL5_WIDTH, key="5")
         self.add_column("ATTACHED", width=self.COL6_WIDTH, key="6")
-    
+
     @work(exclusive=True)
     async def on_resize(self, event: events.Resize) -> None:
         """"""
         await asyncio.sleep(0.1)
-        padding = self.cell_padding * (len(self.columns)*2)
+        padding = self.cell_padding * (len(self.columns) * 2)
         dynamic_width = event.size.width - self.STATIC_WIDTH - padding
         dynamic_width = max(dynamic_width, self.COL1_MIN_WIDTH)
         dynamic_width = min(dynamic_width, self.COL1_MAX_WIDTH)

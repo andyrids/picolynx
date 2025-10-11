@@ -1,11 +1,32 @@
-""""""
+"""`USBIPD` & `WSL` command utilities and device models.
+
+Classes:
+    USBIPDDevice: Device information structure for `usbipd` state JSON.
+    USBIPDState: Container for a list of USBIPDDevice objects.
+
+Functions:
+    run_as_administrator: Launches the app as Administrator.
+    run_usbipd_attach: Attaches a USB device to WSL.
+    run_usbipd_bind: Registers a USB device for sharing, enabling attachment.
+    run_usbipd_detach: Detach a USB device from WSL.
+    run_usbipd_state: Fetches the current state of all USB devices in JSON.
+    run_usbipd_unbind: Unregisters a USB device for sharing.
+    run_wsl_list: Lists running WSL distributions.
+"""
+
 import ctypes
 import json
 import re
 import subprocess
 import sys
 from logging import getLogger
-from pydantic import BaseModel, Field, IPvAnyAddress, ValidationError, computed_field
+from pydantic import (
+    BaseModel,
+    Field,
+    IPvAnyAddress,
+    ValidationError,
+    computed_field,
+)
 from win32con import SW_SHOWNORMAL
 from typing import Optional, TypedDict
 from picolynx.exceptions import USBIPDError, WSLError
@@ -19,7 +40,9 @@ class USBIPDDevice(BaseModel):
     """Device information structure for `usbipd` state JSON."""
 
     busid: Optional[str] = Field(None, alias="BusId")
-    clientipaddress: Optional[IPvAnyAddress] = Field(None, alias="ClientIPAddress")
+    clientipaddress: Optional[IPvAnyAddress] = Field(
+        None, alias="ClientIPAddress"
+    )
     description: str = Field(alias="Description")
     instanceid: str = Field(alias="InstanceId")
     isforced: bool = Field(alias="IsForced")
@@ -75,7 +98,7 @@ class USBIPDState(BaseModel):
 
 def run_as_administrator() -> bool:
     """Launches the app as Administrator.
-    
+
     Returns:
         True if `ShellExecuteW` execution was successful, else False."""
     exit_code = ctypes.windll.shell32.ShellExecuteW(
@@ -180,7 +203,7 @@ def run_usbipd_detach(busid: Optional[str] = None) -> None:
 
     try:
         stdout, stderr = usbipd_detach.communicate(timeout=5)
-        if (msg := stdout or stderr):
+        if msg := stdout or stderr:
             __log.info(msg)
         if usbipd_detach.returncode:
             raise USBIPDError(msg)
@@ -219,7 +242,7 @@ def run_usbipd_state() -> list[USBIPDDevice]:
     except subprocess.TimeoutExpired as e:
         usbipd_state.kill()
         raise USBIPDError from e
-    
+
     try:
         state = json.loads(stdout)
         return USBIPDState(**state).devices
@@ -228,7 +251,7 @@ def run_usbipd_state() -> list[USBIPDDevice]:
     except ValidationError as e:
         __log.exception(e)
     return []
-    
+
 
 def run_usbipd_unbind(busid: str) -> None:
     """Unregisters a USB device for sharing.

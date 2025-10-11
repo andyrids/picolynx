@@ -1,3 +1,20 @@
+"""Defines custom TUI components and tables for `PicoLynx`.
+
+This module provides specialized widgets and table classes for the PicoLynx
+textual user interface, including dynamic-width tables for device data and
+compound navigation elements. These components are used to display and
+interact with USBIPD device information and application metadata in the TUI.
+
+Classes:
+    DynamicWidthTable: Custom DataTable with a dynamic initial column.
+    AutoAttachedTable: DataTable for auto-attached USBIPD devices.
+    ConnectedTable: DataTable for connected USBIPD device output.
+    PersistedTable: DataTable for persisted USBIPD device information.
+    TUIFooter: TUI footer widget.
+    TUIHeader: TUI header widget displaying version and hostname.
+    TUINavigation: Compound navigation widget with tabbed tables.
+"""
+
 import asyncio
 from functools import lru_cache
 from getpass import getuser
@@ -18,7 +35,7 @@ from picolynx import __version__
 
 class DynamicWidthTable(DataTable[Any]):
     """Custom `DataTable` with a dynamic initial column.
-    
+
     The first column expands and contracts in size with terminal resize,
     based on passed constraint parameters.
     """
@@ -26,15 +43,15 @@ class DynamicWidthTable(DataTable[Any]):
     _previous_width: int = 0
 
     def __init__(
-            self,
-            dynamic_min: int = 20,
-            dynamic_max: int = 40,
-            dynamic_label: str = "",
-            *,
-            static_widths: tuple[int, ...],
-            static_labels: tuple[str, ...],
-            **kwargs
-        ) -> None:
+        self,
+        dynamic_label: str,
+        dynamic_min: int = 20,
+        dynamic_max: int = 40,
+        *,
+        static_widths: tuple[int, ...],
+        static_labels: tuple[str, ...],
+        **kwargs,
+    ) -> None:
         """Initialises the table & passes `kwargs` to `DataTable` parent.
 
         Args:
@@ -56,10 +73,11 @@ class DynamicWidthTable(DataTable[Any]):
         self._static_widths = static_widths
         if self._static_count != len(static_labels):
             raise ValueError(
-                "Length mismatch between `static_labels` & `static_widths`"
+                "Length mismatch: `static_labels` & `static_widths`"
             )
         self._static_labels = static_labels
         self._row_selected = None
+        self._row_selected_key = None
         super().__init__(**kwargs)
 
     @property
@@ -76,7 +94,7 @@ class DynamicWidthTable(DataTable[Any]):
     def dynamic_min(self) -> int:
         """"""
         return self._dynamic_min
-    
+
     @property
     def row_selected_key(self) -> RowKey | None:
         return self._row_selected_key
@@ -95,12 +113,12 @@ class DynamicWidthTable(DataTable[Any]):
     def static_total_width(self) -> int:
         """"""
         return self._static_width
-    
+
     @property
     def static_widths(self) -> tuple[int, ...]:
         """"""
         return self._static_widths
-    
+
     @property
     def total_padding(self) -> int:
         """Total padding size for total"""
@@ -111,7 +129,7 @@ class DynamicWidthTable(DataTable[Any]):
         """"""
         dynamic_width = width - self.static_total_width - self.total_padding
         return max(dynamic_width, self.dynamic_min)
-    
+
     async def initial_resize(self) -> None:
         """Performs an initial resize of the dynamic column."""
         await asyncio.sleep(0.1)
@@ -137,14 +155,14 @@ class DynamicWidthTable(DataTable[Any]):
             self.add_column(label, width=width, key=str(key))
         # after initial layout has settled, we trigger a resize
         self.call_later(self.initial_resize)
-    
+
     @work(exclusive=True)
     async def on_resize(self, event: events.Resize) -> None:
         """Handles widget resize events.
 
         Modifies the dynamic column width based on available width in the
         terminal window & the column content size.
-        
+
         Args:
             event: Widget `Resize` event.
         """
@@ -156,10 +174,10 @@ class DynamicWidthTable(DataTable[Any]):
             column.width = new_width
             self.refresh_column(0)
             self.refresh(layout=True)
-    
+
     def update_previous_width(self, new_width: int) -> bool:
         """Updates previous width if different from `new_width`.
-        
+
         Returns:
             True if previous width was updated, else False."""
         if self._previous_width != new_width:
@@ -172,14 +190,14 @@ class AutoAttachedTable(DynamicWidthTable):
     """A `DataTable` for `usbipd` auto-attached devices."""
 
     def __init__(self, **kwargs) -> None:
-        """"""
+        """Initialises a `DataTable` for auto-attached devices."""
         super().__init__(
+            dynamic_label="DESCRIPTION",
             dynamic_min=20,
             dynamic_max=45,
-            dynamic_label="DESCRIPTION",
             static_widths=(15,),
             static_labels=("SERIAL",),
-            **kwargs
+            **kwargs,
         )
 
 
@@ -187,14 +205,14 @@ class ConnectedTable(DynamicWidthTable):
     """A `DataTable` for `usbipd` connected device output."""
 
     def __init__(self, **kwargs) -> None:
-        """"""
+        """Initialises a `DataTable` for connected devices."""
         super().__init__(
+            dynamic_label="DESCRIPTION",
             dynamic_min=15,
             dynamic_max=45,
-            dynamic_label="DESCRIPTION",
             static_widths=(5, 9, 5, 8),
             static_labels=("BUSID", "VID:PID", "BOUND", "ATTACHED"),
-            **kwargs
+            **kwargs,
         )
 
 
@@ -202,20 +220,22 @@ class PersistedTable(DynamicWidthTable):
     """A `DataTable` for `usbipd` persisted device information."""
 
     def __init__(self, **kwargs) -> None:
-        """"""
+        """Initialises a `DataTable` for persisted devices."""
         super().__init__(
+            dynamic_label="DESCRIPTION",
             dynamic_min=20,
             dynamic_max=40,
-            dynamic_label="DESCRIPTION",
             static_widths=(36,),
             static_labels=("GUID",),
-            **kwargs
+            **kwargs,
         )
 
 
 class TUIFooter(Footer):
-    """"""
+    """TUI footer widget."""
+
     pass
+
 
 class TUIHeader(Horizontal):
     """TUI header widget."""
@@ -229,14 +249,16 @@ class TUIHeader(Horizontal):
 
 
 class TUINavigation(Widget):
-    """"""
-    
+    """TUI compound navigation widget."""
+
     def compose(self) -> ComposeResult:
-        """"""
+        """Generates navigation components."""
         with TabbedContent(id="nav-content"):
             with TabPane("Connected", id="nav-connected"):
                 yield ConnectedTable(cursor_type="row", id="table-connected")
             with TabPane("Persisted", id="nav-persisted"):
                 yield PersistedTable(cursor_type="none", id="table-persisted")
             with TabPane("Auto-attach", id="nav-autoattach"):
-                yield AutoAttachedTable(cursor_type="none", id="table-autoattach")
+                yield AutoAttachedTable(
+                    cursor_type="none", id="table-autoattach"
+                )

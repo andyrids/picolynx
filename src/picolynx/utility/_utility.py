@@ -5,7 +5,7 @@ import ctypes
 import re
 import subprocess
 from logging import basicConfig, getLogger
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Generator
 
 import winerror
 from picolynx.exceptions import EnablePnPAuditError
@@ -68,6 +68,7 @@ def is_pnp_event(event: "PyEventLogRecord") -> bool:
     """
     return winerror.HRESULT_CODE(event.EventID) == 6416
 
+
 def parse_instanceid(instanceid: str) -> tuple[str, str, str]:
     """Parses `InstanceId` value into VID, PID & serial number.
 
@@ -77,7 +78,9 @@ def parse_instanceid(instanceid: str) -> tuple[str, str, str]:
     Returns:
         _description_
     """
-    ptn = r"VID_(?P<VID>[A-Z0-9]{4})&PID_(?P<PID>[A-Z0-9]{4})\\(?P<SER>[A-Z0-9]+)"
+    ptn = (
+        r"VID_(?P<VID>[A-Z0-9]{4})&PID_(?P<PID>[A-Z0-9]{4})\\(?P<SER>[A-Z0-9]+)"
+    )
     if match := re.search(ptn, instanceid):
         return (match["VID"], match["PID"], match["SER"])
     return ("UNK", "UNK", "UNK")

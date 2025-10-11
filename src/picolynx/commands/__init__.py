@@ -1,4 +1,8 @@
-""""""
+"""`__init__` for `commands` module.
+
+Contains `pydantic` models for parsing `usbipd-win` output and utility
+functions"""
+
 from ._commands import (
     USBIPDDevice,
     USBIPDState,
@@ -8,7 +12,7 @@ from ._commands import (
     run_usbipd_detach,
     run_usbipd_state,
     run_usbipd_unbind,
-    run_wsl_list
+    run_wsl_list,
 )
 
 __all__ = (
@@ -20,5 +24,5 @@ __all__ = (
     "run_usbipd_detach",
     "run_usbipd_state",
     "run_usbipd_unbind",
-    "run_wsl_list"
+    "run_wsl_list",
 )

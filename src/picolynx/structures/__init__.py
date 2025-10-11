@@ -1,4 +1,5 @@
-""""""
+"""`__init__` for `structures` module."""
+
 from ._concrete import (
     DBCDeviceType,
     DBCEvent,

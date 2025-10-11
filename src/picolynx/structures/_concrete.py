@@ -1,4 +1,33 @@
-""""""
+"""Definitions for Windows device broadcast structures and enumerations.
+
+Enumerations:
+    DBCDeviceType: Device types for Device Broadcast structures.
+    DBCEvent: Device Broadcast event enumerations.
+    DBCVolumeFlags: Device broadcast volume flags.
+    GUID_DEVINTERFACE_DISK: GUID for disk device interface.
+    GUID_DEVINTERFACE_PARALLEL: GUID for parallel port device interface.
+    GUID_DEVINTERFACE_USB_DEVICE: GUID for USB device interface.
+    GUID_DEVINTERFACE_USB_HOST_CONTROLLER: GUID for USB host controller device
+        interface.
+    GUID_DEVINTERFACE_USB_HUB: GUID for USB hub device interface.
+    GUID_DEVINTERFACE_VOLUME: GUID for volume device interface.
+
+Structures:
+    DEV_BROADCAST_DEVICEINTERFACE_W: Contains information about a class of
+        devices.
+    DEV_BROADCAST_HDR: Standard header for information related to a device
+        event.
+    DEV_BROADCAST_OEM: Contains information about a modem, serial, or parallel
+        port.
+    DEV_BROADCAST_PORT_A: Contains information about a modem/serial/parallel
+        port (ANSI).
+    DEV_BROADCAST_PORT_W: Contains information about a modem/serial/parallel
+        port (WIDE).
+    DEV_BROADCAST_VOLUME: Contains information about a logical volume.
+    GUID_DEVINTERFACE_COMPORT: GUID for COM port device interface.
+
+"""
+
 from ctypes import Structure, wintypes
 from enum import IntEnum
 from uuid import UUID
@@ -8,7 +37,9 @@ GUID_DEVINTERFACE_COMPORT = UUID("{86E0D1E0-8089-11D0-9CE4-08003E301F73}")
 GUID_DEVINTERFACE_DISK = UUID("{53F56307-B6BF-11D0-94F2-00A0C91EFB8B}")
 GUID_DEVINTERFACE_PARALLEL = UUID("{97F76EF0-F883-11D0-AF1F-0000F800845C}")
 GUID_DEVINTERFACE_USB_DEVICE = UUID("{A5DCBF10-6530-11D2-901F-00C04FB951ED}")
-GUID_DEVINTERFACE_USB_HOST_CONTROLLER = UUID("{3ABF6F2D-71C4-462A-8A92-1E6861E6AF27}")
+GUID_DEVINTERFACE_USB_HOST_CONTROLLER = UUID(
+    "{3ABF6F2D-71C4-462A-8A92-1E6861E6AF27}"
+)
 GUID_DEVINTERFACE_USB_HUB = UUID("{F18A0E88-C30C-11D0-8815-00A0C906BED8}")
 GUID_DEVINTERFACE_VOLUME = UUID("{53F5630D-B6BF-11D0-94F2-00A0C91EFB8B}")
 
@@ -32,6 +63,7 @@ class DBCDeviceType(IntEnum):
         DBT_DEVTYP_VOLUME: Logical volume. The structure is a
             `DEV_BROADCAST_VOLUME`
     """
+
     DBT_DEVTYP_OEM = 0x00000000
     DBT_DEVTYP_VOLUME = 0x00000002
     DBT_DEVTYP_PORT = 0x00000003
@@ -41,7 +73,7 @@ class DBCDeviceType(IntEnum):
 
 class DBCEvent(IntEnum):
     """Device Broadcast event enumerations.
-    
+
     Attributes:
         DBT_DEVNODES_CHANGED: A device has been added to or removed from the
             system.
@@ -73,6 +105,7 @@ class DBCEvent(IntEnum):
 
         DBT_USERDEFINED: The meaning of this message is user-defined.
     """
+
     DBT_DEVNODES_CHANGED = 0x0007
     DBT_DEVICEARRIVAL = 0x8000
     DBT_DEVICEQUERYREMOVE = 0x8001
@@ -102,7 +135,7 @@ class DBCVolumeFlags(IntEnum):
 
 class DEV_BROADCAST_DEVICEINTERFACE_W(Structure):
     """Contains information about a class of devices
-    
+
     Attributes:
         dbcc_size: The size of this structure, in bytes.
 
@@ -114,12 +147,13 @@ class DEV_BROADCAST_DEVICEINTERFACE_W(Structure):
 
         dbcc_name: A null-terminated string for the device name.
     """
+
     _fields_ = [
-        ('dbcc_size', wintypes.DWORD),
-        ('dbcc_devicetype', wintypes.DWORD),
-        ('dbcc_reserved', wintypes.DWORD),
-        ('dbcc_classguid', wintypes.BYTE * 16),
-        ('dbcc_name', wintypes.WCHAR * 1)
+        ("dbcc_size", wintypes.DWORD),
+        ("dbcc_devicetype", wintypes.DWORD),
+        ("dbcc_reserved", wintypes.DWORD),
+        ("dbcc_classguid", wintypes.BYTE * 16),
+        ("dbcc_name", wintypes.WCHAR * 1),
     ]
 
 
@@ -130,13 +164,14 @@ class DEV_BROADCAST_HDR(Structure):
         dbch_size: The size of this structure, in bytes.
 
         dbch_devicetype: The device type (`DBCDeviceType`).
-        
+
         dbch_reserved: Reserved; do not use.
     """
+
     _fields_ = [
         ("dbch_size", wintypes.DWORD),
         ("dbch_devicetype", wintypes.DWORD),
-        ("dbch_reserved", wintypes.DWORD)
+        ("dbch_reserved", wintypes.DWORD),
     ]
 
 
@@ -155,6 +190,7 @@ class DEV_BROADCAST_OEM(Structure):
         dbco_suppfunc: The OEM-specific function value. Possible values depend
             on the device.
     """
+
     _fields_ = [
         ("dbco_size", wintypes.DWORD),
         ("dbco_devicetype", wintypes.DWORD),
@@ -177,7 +213,8 @@ class DEV_BROADCAST_PORT_A(Structure):
 
         dbcp_name: A null-terminated string specifying the friendly name of
             the port or the device connected.
-        """
+    """
+
     _fields_ = [
         ("dbcp_size", wintypes.DWORD),
         ("dbcp_devicetype", wintypes.DWORD),
@@ -199,7 +236,8 @@ class DEV_BROADCAST_PORT_W(Structure):
 
         dbcp_name: A null-terminated string specifying the friendly name of
             the port or the device connected.
-        """
+    """
+
     _fields_ = [
         ("dbcp_size", wintypes.DWORD),
         ("dbcp_devicetype", wintypes.DWORD),
@@ -210,7 +248,7 @@ class DEV_BROADCAST_PORT_W(Structure):
 
 class DEV_BROADCAST_VOLUME(Structure):
     """Contains information about a logical volume.
-    
+
     Attributes:
         dbcv_size: The size of this structure, in bytes.
 
@@ -224,10 +262,11 @@ class DEV_BROADCAST_VOLUME(Structure):
         dbcv_flags: This parameter can be `DBCVolumeFlags.DBTF_MEDIA` or
             `DBVolumeFlags.DBTF_NET`.
     """
+
     _fields_ = [
         ("dbcv_size", wintypes.DWORD),
         ("dbcv_devicetype", wintypes.DWORD),
         ("dbcv_reserved", wintypes.DWORD),
         ("dbcv_unitmask", wintypes.DWORD),
-        ("dbcv_flags", wintypes.WORD)
+        ("dbcv_flags", wintypes.WORD),
     ]

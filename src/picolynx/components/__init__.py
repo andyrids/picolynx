@@ -6,7 +6,7 @@ from ._components import (
     PersistedTable,
     TUIFooter,
     TUIHeader,
-    TUINavigation
+    TUINavigation,
 )
 
 __all__ = (
@@ -15,5 +15,5 @@ __all__ = (
     "PersistedTable",
     "TUIFooter",
     "TUIHeader",
-    "TUINavigation"
+    "TUINavigation",
 )

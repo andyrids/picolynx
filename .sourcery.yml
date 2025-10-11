@@ -1,0 +1,79 @@
+coding_assistant:
+  recipe_prompts:
+    generate_module_docstrings: |
+      Generate a module-level docstring in Google style.
+
+      The docstring should start with a concise, one-line summary of the module's purpose, followed by a more detailed explanation.
+
+      If the module contains any module-level variables, document them in an "Attributes" section. Each attribute should have its name,
+      type, and a description.
+
+      The docstring must conform to the following structure:
+      1.  Start with a single, imperative summary line explaining the module's purpose.
+      2.  After the summary line and a blank line, add sections for `Enums`, `Classes`, and `Functions` if they exist in the module. Do not include a section if there are no corresponding public items.
+      3.  Under each heading, list each public item (name not starting with an underscore). Each item should be on its own line, formatted as `Name: A brief summary of its purpose.`
+
+      Example:
+      ```python
+      """Provides utilities for data processing and validation.
+
+      A more detailed explanation of the module's contents and purpose, if necessary - 
+      and which may span multiple lines.
+
+      Enums:
+          DataStatus: Represents the validation status of a dataset.
+
+      Classes:
+          DataProcessor: A class to process raw input data.
+
+      Functions:
+          validate_data: Validates the structure of a given DataFrame.
+      ```
+    generate_docstrings: |
+      Generate or validate a Google-style docstring for the given Python code element (function, method, class, or enum).
+
+      If a docstring already exists, review it for compliance with the Google Python Style Guide. If it is non-compliant, provide a corrected version. If it is compliant, do nothing.
+
+      If no docstring exists, generate a complete one from scratch.
+
+      The docstring must conform to the following structures:
+
+      For Functions and Methods:
+      1.  A concise, one-line summary ending in a period.
+      2.  An `Args:` section, listing each argument with its name, and a description.
+      3.  A `Returns:` section, describing the type and purpose of the return value. Use `None` if the function does not return anything.
+      4.  A `Raises:` section for any exceptions raised.
+
+      Function Example:
+      ```python
+      def my_function(arg1: str, arg2: str):
+          """Summarizes the function's purpose in one line.
+
+          Args:
+              arg1: Description of the first argument.
+              arg2: Description of the second argument.
+
+          Returns:
+              bool: Description of the return value.
+
+          Raises:
+              ValueError: If arg1 is negative.
+          """
+      ```
+
+      For Classes and Enums:
+      1.  A concise, one-line summary ending in a period.
+      2.  A more detailed description of the class or enum, if necessary.
+      3.  An `Attributes:` section listing public attributes or enum members with their name, type, and a description.
+
+      Class Example:
+      ```python
+      class MyClass:
+          """A brief summary of the class.
+
+          A more detailed explanation of what this class does.
+
+          Attributes:
+              attr1: Description of the first attribute.
+              attr2: Description of the second attribute.
+          """
