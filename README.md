@@ -5,6 +5,8 @@ with `pywin32` and leverages `usbipd-win` to manage device connections.
 
 ![PicoLynx TUI](docs/img/picolynx.png)
 
+https://github.com/user-attachments/assets/d5382270-cae8-4eb4-90a6-28ccb96e5250
+
 ## Features
 
 - **Manual control**: Easily attach, bind, detach, or unbind devices using keyboard shortcuts.
