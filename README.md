@@ -33,21 +33,25 @@ To install Astral `uv`, use the following command:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Astral uv package manager is recommended for a fast, isolated, and reliable install. You can install `PicoLynx` globally with the following `uv` commands:
+Astral uv package manager is recommended for a fast, isolated, and reliable install. You can install `PicoLynx` globally with the following `uv` command:
 
 ```sh
 uv tool install picolynx
 ```
 
+Or:
+
 ```sh
 uv tool install "git+https://github.com/andyrids/picolynx.git"
 ```
 
-You can run `PicoLynx` without installing, by running the following commands:
+You can run `PicoLynx` without installing, by running the following command:
 
 ```sh
 uvx picolynx
 ```
+
+Or:
 
 ```sh
 uvx "git+https://github.com/andyrids/picolynx.git"
