@@ -1,6 +1,7 @@
 """Unit tests for `picolynx.commands` package."""
 
 import json
+from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch, ANY
 import subprocess
@@ -79,7 +80,7 @@ def test_usbipd_device_invalid_instanceid():
     assert device.pid == "????"
     assert device.serial == "????"
 
-def test_usbipd_state_model(sample_device_data):
+def test_usbipd_state_model(sample_device_data: USBIPDDevice) -> None:
     """Test the top-level USBIPDState model."""
     state_data = {"Devices": [sample_device_data, sample_device_data]}
     state = USBIPDState(**state_data)
@@ -87,7 +88,7 @@ def test_usbipd_state_model(sample_device_data):
     assert isinstance(state.devices[0], USBIPDDevice)
     assert state.devices[1].description == DEVICE_1_DESC
 
-def test_usbipd_state_validation_error():
+def test_usbipd_state_validation_error() -> None:
     """Test that malformed state data raises a ValidationError."""
     with pytest.raises(ValidationError):
         USBIPDState(Devices=[{"INVALID_KEY": "INVALID_VALUE"}]) # pyright: ignore[reportArgumentType]
