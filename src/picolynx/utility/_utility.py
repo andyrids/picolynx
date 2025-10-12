@@ -5,7 +5,7 @@ import ctypes
 import re
 import subprocess
 from logging import basicConfig, getLogger
-from typing import TYPE_CHECKING, Any, Callable, Generator
+from typing import TYPE_CHECKING
 
 import winerror
 from picolynx.exceptions import EnablePnPAuditError

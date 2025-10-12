@@ -1,4 +1,3 @@
-from enum import StrEnum
 from typing import Any, Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -55,7 +54,7 @@ async def test_device_from_selected(mock_run_usbipd_state: MagicMock | AsyncMock
     async with app.run_test() as pilot:
         await pilot.pause()
         table = pilot.app.query_one("#table-connected", DataTable)
-        
+
         # Simulate row selection
         table.cursor_row = 0 # type: ignore
         selected_key = table.row_keys[table.cursor_row] # type: ignore
@@ -77,7 +76,7 @@ async def test_manual_actions_post_messages(mock_run_usbipd_state: MagicMock | A
         await pilot.pause()
         table = pilot.app.query_one("#table-connected", DataTable)
         table.cursor_row = 0 # type: ignore
-        
+
         messages = []
         # Patch post_message to capture messages instead of processing them
         with patch.object(app, "post_message", messages.append):

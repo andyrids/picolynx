@@ -28,10 +28,8 @@ from pydantic import (
     computed_field,
 )
 from win32con import SW_SHOWNORMAL
-from typing import Optional, TypedDict
+from typing import Optional
 from picolynx.exceptions import USBIPDError, WSLError
-from picolynx.utility import LOG_FMT
-from textual.logging import TextualHandler
 
 __log = getLogger("commands")
 

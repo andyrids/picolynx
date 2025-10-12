@@ -1,7 +1,6 @@
 """"""
 
 import asyncio
-import contextvars
 import ctypes
 import logging
 import threading
@@ -9,7 +8,6 @@ import sys
 from asyncio.windows_events import NULL
 from collections import defaultdict
 from contextlib import contextmanager
-from contextvars import ContextVar
 from ctypes import wintypes
 from dataclasses import dataclass
 from enum import IntEnum
@@ -27,9 +25,7 @@ from typing import (
 import win32api
 import win32con
 import win32gui
-import winerror
 
-from picolynx import __version__
 from picolynx.commands import *
 from picolynx.components import (
     ConnectedTable,
@@ -43,7 +39,6 @@ from picolynx.utility import LOG_FMT, is_administrator
 from picolynx.structures import *
 from picolynx.themes import GALAXY_THEME
 
-from pywintypes import error as PyWinError
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -52,7 +47,6 @@ from textual.containers import Container
 from textual.widgets.data_table import RowKey
 from textual.logging import TextualHandler
 from textual.message import Message
-from textual.reactive import reactive
 from textual._path import CSSPathType
 
 logging.basicConfig(
@@ -527,7 +521,7 @@ class TUI(App):
             self.post_message(USBIPDDetach(device))
 
     def action_manual_unbind(self) -> None:
-        """"""
+        """Triggers device unbind on `manual_unbind` action."""
         selected_row_key = self.table_connected.row_selected_key
         if device := self.device_from_selected(selected_row_key):
             self.__log.info(f"Manual unbind @ BUSID {device.busid}")
@@ -592,7 +586,7 @@ class TUI(App):
 
     @on(USBIPDDetach)
     def handle_detach_device(self, msg: USBIPDDetach) -> None:
-        """forwards messages to a dedicated worker.
+        """Forwards messages to a dedicated worker.
 
         Args:
             msg: A `USBIPDDetachDevice` message.
@@ -601,7 +595,7 @@ class TUI(App):
 
     @on(USBIPDUnbind)
     def handle_unbind_device(self, msg: USBIPDUnbind) -> None:
-        """forwards messages to a dedicated worker.
+        """Forwards messages to a dedicated worker.
 
         Args:
             msg: A `USBIPDUnbindDevice` message.
@@ -628,7 +622,7 @@ class TUI(App):
             self.__log.exception(e)
 
     def _check_cache(self, device: USBIPDDevice) -> bool:
-        """"""
+        """Checks a device against the connection cache."""
         return self._connection_cache.get(str(device.busid)) != device
 
     def incremental_device_update(self) -> None:
@@ -678,6 +672,10 @@ class TUI(App):
             new_device = connections[busid]
             con_row = self.get_connected_row(new_device)
             self.table_connected.add_row(*con_row, key=busid)
+            index = self.table_connected.get_row_index(RowKey(busid))
+            self.table_connected.move_cursor(row=index)
+            self.table_connected.action_select_cursor()
+
             if new_device.isbound:
                 per_row = self.get_persisted_row(new_device)
                 self.table_persisted.add_row(*per_row, key=busid)
@@ -708,7 +706,7 @@ class TUI(App):
                 self.table_persisted.remove_row(busid)
 
     def initial_populate_devices(self) -> None:
-        """"""
+        """Populates the device `DataTable`."""
         self.table_connected.clear()
 
         new_cache = {d.busid: d for d in run_usbipd_state() if d.busid}
@@ -735,7 +733,7 @@ class TUI(App):
         """
         if (device := msg.device).busid is None:
             return
-        
+
         try:
             active_distro = run_wsl_list()
         except WSLError as e:

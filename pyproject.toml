@@ -65,18 +65,23 @@ quote-style = "double"
 
 [tool.ruff.lint]
 select = [
-    "D1",  # pydocstyle
-    "E",   # pycodestyle
-    "ERA", # commented out code
-    "W",   # pycodestyle
-    "C90", # McCabe complexity
+    "D1",   # pydocstyle (undocumented ruleset)
+    "D300", # pydocstyle (triple-single-quotes)
+    "D403", # pydocstyle (first-word-uncapitalized)
+    "D419", # pydocstyle (empty-docstring)
+    "E",    # pycodestyle (error ruleset)
+    "ERA",  # commented out code
+    #"F401", # pyflakes (unused-import)
+    "I002", # isort (missing-required-import)
+    "W",    # pycodestyle (warning ruleset)
+    "C90",  # McCabe complexity (complex-structure)
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"**/{test_}*" = ["D102"] # Missing docstring in public method
+"**/{test_}*" = ["D100", "D102", "E501"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

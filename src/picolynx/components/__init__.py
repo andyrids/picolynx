@@ -1,4 +1,4 @@
-""""""
+"""`__init__` for `components` module."""
 
 from ._components import (
     AutoAttachedTable,

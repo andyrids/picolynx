@@ -45,7 +45,7 @@ async def test_dynamic_width_table_mount():
         static_widths=(10, 12),
         static_labels=("Static A", "Static B")
     )
-    
+
     # Using run_test to properly mount the widget
     from textual.app import App
     class TestApp(App):

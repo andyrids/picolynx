@@ -1,9 +1,9 @@
 """Defines custom TUI components and tables for `PicoLynx`.
 
-This module provides specialized widgets and table classes for the PicoLynx
-textual user interface, including dynamic-width tables for device data and
-compound navigation elements. These components are used to display and
-interact with USBIPD device information and application metadata in the TUI.
+This module provides specialized widgets and `DataTable` classes for the
+PicoLynx TUI, including dynamic-width tables for device data and compound
+navigation elements. These components are used to display and interact with
+USBIPD device information and application metadata.
 
 Classes:
     DynamicWidthTable: Custom DataTable with a dynamic initial column.
@@ -19,8 +19,7 @@ import asyncio
 from functools import lru_cache
 from getpass import getuser
 from socket import gethostname
-from typing import Any, ClassVar
-from typing_extensions import Literal
+from typing import Any
 
 from rich.text import Text
 from textual import events, work
@@ -82,41 +81,42 @@ class DynamicWidthTable(DataTable[Any]):
 
     @property
     def dynamic_label(self) -> str:
-        """"""
+        """Label of the dynamic column."""
         return self._dynamic_label
 
     @property
     def dynamic_max(self) -> int:
-        """"""
+        """Maximum size of the dynamic column."""
         return self._dynamic_max
 
     @property
     def dynamic_min(self) -> int:
-        """"""
+        """Minimum size of the dynamic column."""
         return self._dynamic_min
 
     @property
     def row_selected_key(self) -> RowKey | None:
+        """Selected row key property."""
         return self._row_selected_key
 
     @property
     def static_count(self) -> int:
-        """"""
+        """Count of static columns."""
         return self._static_count
 
     @property
     def static_labels(self) -> tuple[str, ...]:
-        """"""
+        """Static column labels property."""
         return self._static_labels
 
     @property
     def static_total_width(self) -> int:
-        """"""
+        """Total static column width."""
         return self._static_width
 
     @property
     def static_widths(self) -> tuple[int, ...]:
-        """"""
+        """Static width values property."""
         return self._static_widths
 
     @property
@@ -126,7 +126,11 @@ class DynamicWidthTable(DataTable[Any]):
 
     @lru_cache(maxsize=32)
     def calculate_width(self, width: int) -> int:
-        """"""
+        """Calculates available width after static columns & padding.
+
+        Args:
+            width: With of the `DataTable`.
+        """
         dynamic_width = width - self.static_total_width - self.total_padding
         return max(dynamic_width, self.dynamic_min)
 
@@ -146,7 +150,7 @@ class DynamicWidthTable(DataTable[Any]):
         self._row_selected_key = event.row_key
 
     def on_mount(self) -> None:
-        """"""
+        """Handles the DataTable setup on mount."""
         # set column `auto_width=True` via `width=None`
         self.add_column(self.dynamic_label, width=None, key="1")
 

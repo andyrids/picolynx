@@ -39,6 +39,10 @@ DataTable {
         color: $text-success;
     }
 
+    & > .datatable--cursor {
+        background: $secondary;
+    }
+
     &:focus {
         background-tint: $background 100%;
     }

@@ -68,7 +68,7 @@ def test_is_pnp_audit_when_enabled(mock_popen):
     )
     mock_proc.communicate.return_value = (mock_stdout, "")
     mock_popen.return_value = mock_proc
-    
+
     assert is_pnp_audit() is True
 
 @patch("subprocess.Popen")
@@ -82,7 +82,7 @@ def test_is_pnp_audit_when_disabled(mock_popen):
     )
     mock_proc.communicate.return_value = (mock_stdout, "")
     mock_popen.return_value = mock_proc
-    
+
     assert is_pnp_audit() is False
 
 @patch("subprocess.Popen")
@@ -91,6 +91,6 @@ def test_is_pnp_audit_process_error(mock_popen):
     mock_proc = MagicMock()
     mock_proc.communicate.return_value = ("", "Error executing command")
     mock_popen.return_value = mock_proc
-    
+
     with pytest.raises(EnablePnPAuditError, match="Error executing command"):
         is_pnp_audit()

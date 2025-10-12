@@ -1,3 +1,4 @@
+"""Conftest fixtures for `pytest` unit test functions."""
 from typing import Any
 import pytest
 

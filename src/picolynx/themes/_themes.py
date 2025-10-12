@@ -1,4 +1,4 @@
-""""""
+"""Custom textual theme module."""
 
 from textual.theme import BUILTIN_THEMES, Theme
 

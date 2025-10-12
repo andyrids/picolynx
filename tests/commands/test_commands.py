@@ -1,12 +1,11 @@
 """Unit tests for `picolynx.commands` package."""
 
 import json
-from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch, ANY
 import subprocess
 
-from pydantic import IPvAnyAddress, ValidationError
+from pydantic import ValidationError
 
 from picolynx.commands._commands import (
     USBIPDDevice,
@@ -159,7 +158,7 @@ def test_run_usbipd_detach_by_busid(mock_popen) -> None:
     mock_proc.returncode = 0
     mock_proc.communicate.return_value = ("", "")
     mock_popen.return_value = mock_proc
-    
+
     run_usbipd_detach("3-2")
     mock_popen.assert_called_with(
         ["usbipd", "detach", "--busid", "3-2"],
@@ -173,7 +172,7 @@ def test_run_usbipd_detach_all(mock_popen) -> None:
     mock_proc.returncode = 0
     mock_proc.communicate.return_value = ("", "")
     mock_popen.return_value = mock_proc
-    
+
     run_usbipd_detach(None)
     mock_popen.assert_called_with(
         ["usbipd", "detach", "--all"],
@@ -225,6 +224,6 @@ def test_run_wsl_list_error(mock_popen) -> None:
     mock_proc = MagicMock()
     mock_proc.communicate.return_value = ("", "WSL error")
     mock_popen.return_value = mock_proc
-    
+
     with pytest.raises(WSLError, match="WSL error"):
         run_wsl_list()
