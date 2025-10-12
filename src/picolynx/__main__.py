@@ -54,7 +54,6 @@ from textual.logging import TextualHandler
 from textual.message import Message
 from textual.reactive import reactive
 from textual._path import CSSPathType
-from win32ctypes.pywin32 import pywintypes
 
 logging.basicConfig(
     level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),)
