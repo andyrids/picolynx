@@ -26,7 +26,6 @@ from typing import (
 
 import win32api
 import win32con
-import win32ctypes.pywin32
 import win32gui
 import winerror
 
