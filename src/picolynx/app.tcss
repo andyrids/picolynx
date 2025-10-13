@@ -38,7 +38,7 @@ DataTable {
         background: $surface;
         color: $text-success;
     }
-
+    # styles row background on arrow navigation/cursor selection
     & > .datatable--cursor {
         background: $secondary;
     }
@@ -76,7 +76,7 @@ TabPane {
     padding: 0;
 }
 
-# Custom TUIHeader widget
+# custom TUIHeader widget
 TUIHeader {
     color: $text-primary;
     height: auto;
@@ -87,6 +87,3 @@ TUIHeader {
         dock: right;
     }
 }
-
-# TabbedContent #--content-tab-<TabPane ID>
-# ContentSwitcher 

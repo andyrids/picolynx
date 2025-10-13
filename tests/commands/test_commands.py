@@ -30,6 +30,7 @@ DEVICE_3_DESC = "USB Serial Device (COM3)"
 
 # --- Pydantic Model Tests ---
 
+
 def test_usbipd_device_model_creation(sample_device_data: dict) -> None:
     """Test successful creation of USBIPDDevice model."""
     device = USBIPDDevice(**sample_device_data)
@@ -38,6 +39,7 @@ def test_usbipd_device_model_creation(sample_device_data: dict) -> None:
     assert device.instanceid == DEVICE_1_INSTANCE_ID
     assert device.persistedguid == DEVICE_1_GUID
     assert device.stubinstanceid == DEVICE_1_STUB_INSTANCE_ID
+
 
 def test_usbipd_device_computed_fields(sample_device_data: dict) -> None:
     """Test the computed fields of the USBIPDDevice model."""
@@ -48,6 +50,7 @@ def test_usbipd_device_computed_fields(sample_device_data: dict) -> None:
     assert device.isbound is True
     assert device.isattached is True
     assert device.isconnected is True
+
 
 def test_usbipd_device_missing_fields() -> None:
     """Test computed fields when optional data is missing."""
@@ -67,6 +70,7 @@ def test_usbipd_device_missing_fields() -> None:
     assert device.isattached is False
     assert device.isconnected is False
 
+
 def test_usbipd_device_invalid_instanceid():
     """Test computed fields with a malformed InstanceId."""
     device_data = {
@@ -79,6 +83,7 @@ def test_usbipd_device_invalid_instanceid():
     assert device.pid == "????"
     assert device.serial == "????"
 
+
 def test_usbipd_state_model(sample_device_data: USBIPDDevice) -> None:
     """Test the top-level USBIPDState model."""
     state_data = {"Devices": [sample_device_data, sample_device_data]}
@@ -87,13 +92,15 @@ def test_usbipd_state_model(sample_device_data: USBIPDDevice) -> None:
     assert isinstance(state.devices[0], USBIPDDevice)
     assert state.devices[1].description == DEVICE_1_DESC
 
+
 def test_usbipd_state_validation_error() -> None:
     """Test that malformed state data raises a ValidationError."""
     with pytest.raises(ValidationError):
-        USBIPDState(Devices=[{"INVALID_KEY": "INVALID_VALUE"}]) # pyright: ignore[reportArgumentType]
+        USBIPDState(Devices=[{"INVALID_KEY": "INVALID_VALUE"}])  # pyright: ignore[reportArgumentType]
 
 
 # --- Subprocess Command Tests ---
+
 
 @patch("subprocess.Popen")
 def test_run_usbipd_state_success(mock_popen) -> None:
@@ -106,7 +113,10 @@ def test_run_usbipd_state_success(mock_popen) -> None:
 
     devices = run_usbipd_state()
     assert devices == []
-    mock_popen.assert_called_with(["usbipd", "state"], stdout=ANY, stderr=ANY, text=True, shell=False)
+    mock_popen.assert_called_with(
+        ["usbipd", "state"], stdout=ANY, stderr=ANY, text=True, shell=False
+    )
+
 
 @patch("subprocess.Popen")
 def test_run_usbipd_state_command_error(mock_popen) -> None:
@@ -119,12 +129,14 @@ def test_run_usbipd_state_command_error(mock_popen) -> None:
     with pytest.raises(USBIPDError, match="An error occurred"):
         run_usbipd_state()
 
+
 @patch("subprocess.Popen")
 def test_run_usbipd_state_file_not_found(mock_popen) -> None:
     """Test run_usbipd_state when usbipd is not installed."""
     mock_popen.side_effect = FileNotFoundError
     with pytest.raises(USBIPDError, match="Missing `usbipd`"):
         run_usbipd_state()
+
 
 @patch("subprocess.Popen")
 def test_run_usbipd_attach_success(mock_popen) -> None:
@@ -137,8 +149,12 @@ def test_run_usbipd_attach_success(mock_popen) -> None:
     run_usbipd_attach("1-1")
     mock_popen.assert_called_with(
         ["usbipd", "attach", "--busid", "1-1", "--wsl"],
-        stdout=ANY, stderr=ANY, text=True, shell=False
+        stdout=ANY,
+        stderr=ANY,
+        text=True,
+        shell=False,
     )
+
 
 @patch("subprocess.Popen")
 def test_run_usbipd_bind_command_error(mock_popen) -> None:
@@ -151,6 +167,7 @@ def test_run_usbipd_bind_command_error(mock_popen) -> None:
     with pytest.raises(USBIPDError, match="Bind failed"):
         run_usbipd_bind("2-1")
 
+
 @patch("subprocess.Popen")
 def test_run_usbipd_detach_by_busid(mock_popen) -> None:
     """Test run_usbipd_detach with a specific busid."""
@@ -162,8 +179,12 @@ def test_run_usbipd_detach_by_busid(mock_popen) -> None:
     run_usbipd_detach("3-2")
     mock_popen.assert_called_with(
         ["usbipd", "detach", "--busid", "3-2"],
-        stdout=ANY, stderr=ANY, text=True, shell=False
+        stdout=ANY,
+        stderr=ANY,
+        text=True,
+        shell=False,
     )
+
 
 @patch("subprocess.Popen")
 def test_run_usbipd_detach_all(mock_popen) -> None:
@@ -176,19 +197,26 @@ def test_run_usbipd_detach_all(mock_popen) -> None:
     run_usbipd_detach(None)
     mock_popen.assert_called_with(
         ["usbipd", "detach", "--all"],
-        stdout=ANY, stderr=ANY, text=True, shell=False
+        stdout=ANY,
+        stderr=ANY,
+        text=True,
+        shell=False,
     )
+
 
 @patch("subprocess.Popen")
 def test_run_usbipd_unbind_timeout(mock_popen) -> None:
     """Test run_usbipd_unbind when the command times out."""
     mock_proc = MagicMock()
-    mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd="usbipd", timeout=5)
+    mock_proc.communicate.side_effect = subprocess.TimeoutExpired(
+        cmd="usbipd", timeout=5
+    )
     mock_popen.return_value = mock_proc
 
     with pytest.raises(USBIPDError):
         run_usbipd_unbind("4-1")
     mock_proc.kill.assert_called_once()
+
 
 @patch("subprocess.Popen")
 def test_run_wsl_list_running(mock_popen) -> None:
@@ -201,8 +229,13 @@ def test_run_wsl_list_running(mock_popen) -> None:
     assert distros == ("Ubuntu", "Debian")
     mock_popen.assert_called_with(
         ["wsl", "--list", "--quiet", "--running"],
-        stdout=ANY, stderr=ANY, text=True, shell=False, encoding="UTF-16-LE"
+        stdout=ANY,
+        stderr=ANY,
+        text=True,
+        shell=False,
+        encoding="UTF-16-LE",
     )
+
 
 @patch("subprocess.Popen")
 def test_run_wsl_list_all(mock_popen) -> None:
@@ -215,8 +248,13 @@ def test_run_wsl_list_all(mock_popen) -> None:
     assert distros == ("Ubuntu",)
     mock_popen.assert_called_with(
         ["wsl", "--list", "--quiet"],
-        stdout=ANY, stderr=ANY, text=True, shell=False, encoding="UTF-16-LE"
+        stdout=ANY,
+        stderr=ANY,
+        text=True,
+        shell=False,
+        encoding="UTF-16-LE",
     )
+
 
 @patch("subprocess.Popen")
 def test_run_wsl_list_error(mock_popen) -> None:

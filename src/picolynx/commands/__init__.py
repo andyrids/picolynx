@@ -1,7 +1,8 @@
 """`__init__` for `commands` module.
 
 Contains `pydantic` models for parsing `usbipd-win` output and utility
-functions"""
+functions
+"""
 
 from ._commands import (
     USBIPDDevice,

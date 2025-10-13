@@ -7,7 +7,6 @@ import subprocess
 from logging import basicConfig, getLogger
 from typing import TYPE_CHECKING
 
-import winerror
 from picolynx.exceptions import EnablePnPAuditError
 from textual.logging import TextualHandler
 
@@ -36,7 +35,7 @@ def is_pnp_audit() -> bool:
         True if policy inclusion setting is success & failure, else False.
     """
     pnp_status = subprocess.Popen(
-        ["auditpol", "/get", "/subcategory:Plug and Play Events", "/r"],
+        ["auditpol", "/get", "/subcategory:Plug and Play Eventss", "/r"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -57,29 +56,20 @@ def is_pnp_audit() -> bool:
     return False
 
 
-def is_pnp_event(event: "PyEventLogRecord") -> bool:
-    """Indicates if an event is a PnP event.
-
-    Args:
-        event: An event log record.
-
-    Returns:
-        True if `event.EventID` is 6416 (PnP), else False.
-    """
-    return winerror.HRESULT_CODE(event.EventID) == 6416
-
-
 def parse_instanceid(instanceid: str) -> tuple[str, str, str]:
     """Parses `InstanceId` value into VID, PID & serial number.
 
     Args:
-        instanceid: _description_
+        instanceid: The device `InstanceID` value.
 
     Returns:
-        _description_
+        The device VID, PID & serial ID values..
     """
+    if not instanceid.startswith("USB\\"):
+        return ("UNK", "UNK", "UNK")
+
     ptn = (
-        r"VID_(?P<VID>[A-Z0-9]{4})&PID_(?P<PID>[A-Z0-9]{4})\\(?P<SER>[A-Z0-9]+)"
+        r"VID_(?P<VID>[A-Z0-9]{4})&PID_(?P<PID>[A-Z0-9]{4})(?:&MI_\d{2})?\\(?P<SER>.+)"
     )
     if match := re.search(ptn, instanceid):
         return (match["VID"], match["PID"], match["SER"])

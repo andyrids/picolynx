@@ -1,4 +1,25 @@
-""""""
+"""Implements the main TUI application for managing USBIPD devices on Windows.
+
+Provides classes and utilities for device notification, message handling, and
+thread-safe device operations in a Textual-based terminal UI. Integrates with
+Windows APIs to monitor device changes and manage device state.
+
+Classes:
+    USBIPDAttach: Device information message for `usbipd attach` command.
+    USBIPDBind: Device information message for `usbipd attach` command.
+    USBIPDDetach: Device information message for `usbipd detach` command.
+    USBIPDUnbind: Device information message for `usbipd unbind` command.
+    WMDeviceChange: `WM_DEVICECHANGE` message for refreshing connected device
+        state.
+    DeviceNotifier: Notifies TUI of Windows device changes.
+    TUI: Main TUI application.
+
+Functions:
+    acquire_usbipd_lock: Handles a thread Lock, indicating if successfully
+        acquired.
+    with_device_lock: Decorates a TUI method for device lock acquisition.
+    main: Main application entry.
+"""
 
 import asyncio
 import ctypes
@@ -10,7 +31,6 @@ from collections import defaultdict
 from contextlib import contextmanager
 from ctypes import wintypes
 from dataclasses import dataclass
-from enum import IntEnum
 from functools import lru_cache
 from typing import (
     TYPE_CHECKING,
@@ -49,40 +69,23 @@ from textual.logging import TextualHandler
 from textual.message import Message
 from textual._path import CSSPathType
 
-logging.basicConfig(
-    level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),)
-)
-
-LockCache: TypeAlias = defaultdict[str, threading.Lock]
-
-LRESULT = ctypes.c_ssize_t
-UMSG = ctypes.c_uint
-WPARAM = ctypes.c_size_t
-LPARAM = ctypes.c_ssize_t
-
-WNDPROCTYPE = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, UMSG, WPARAM, LPARAM)
-
 if TYPE_CHECKING:
     from _typeshed import ReadableBuffer
     from _win32typing import PyEventLogRecord  # pyright: ignore[reportMissingModuleSource]
 
+LockCache: TypeAlias = defaultdict[str, threading.Lock]
 
-class USBIF(IntEnum):
-    """USB-IF VID & PID enumerations."""
+LRESULT: TypeAlias = ctypes.c_ssize_t
+UMSG: TypeAlias = ctypes.c_uint
+WPARAM: TypeAlias = ctypes.c_size_t
+LPARAM: TypeAlias = ctypes.c_ssize_t
 
-    PID_PICO_BOOT = 0x0003
-    PID_PICO_PROBE = 0x0004
-    PID_PICO_MICROPYTHON = 0x0005
-    PID_PICO_SDK = 0x000A
-    PID_PICO_CIRCUITPYTHON = 0x000B
-    PID_PICO2_BOOT = 0x000F
-    PID_USBIPD = 0xCAFE
-    VID_RPI = 0x2E8A
-    VID_USBIPD = 0x80EE
+WNDPROCTYPE = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, UMSG, WPARAM, LPARAM)
 
-    def __str__(self) -> str:
-        """Formats a value as a zero-padded, 4-digit hex string."""
-        return f"{self.value:04X}"
+
+logging.basicConfig(
+    level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),)
+)
 
 
 @dataclass
@@ -546,7 +549,11 @@ class TUI(App):
         self._notifier.start()
 
     def get_connected_row(self, device: USBIPDDevice) -> list[Text]:
-        """"""
+        """Parses a row from a USBIPDDevice object.
+
+        Args:
+            device: A device to parse into a table row.
+        """
         md = ""
         return [
             Text(device.description, style=md, overflow="ellipsis"),
@@ -557,7 +564,11 @@ class TUI(App):
         ]
 
     def get_persisted_row(self, device: USBIPDDevice) -> list[Text]:
-        """"""
+        """Parses a row from a USBIPDDevice object.
+
+        Args:
+            device: A device to parse into a table row.
+        """
         md = ""
         return [
             Text(device.description, style=md, overflow="ellipsis"),
