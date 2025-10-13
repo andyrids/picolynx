@@ -624,8 +624,7 @@ class TUI(App):
         Args:
             device_event: A device broadcast message code.
         """
-
-        event_name = next(filter(lambda x: x == wparam, DBCEvent)).name
+        event_name = DBCEvent(wparam).name
         self.__log.info(f"`{event_name}` ({wparam:04X}) - {name}")
         try:
             self.post_message(WMDeviceChange(wparam, name))
@@ -843,7 +842,8 @@ class TUI(App):
         else:
             self.notify(device.description, title="Detached")
         finally:
-            pass
+            # ensure UI is synced after detach
+            self.incremental_device_update()
 
     @work(thread=True)
     @with_device_lock
@@ -885,7 +885,7 @@ def main() -> None:
         app = TUI()
         app.run()
     except KeyboardInterrupt as e:
-        pass
+        logging.info("`KeyboardInterrupt` received")
     finally:
         pass
 
