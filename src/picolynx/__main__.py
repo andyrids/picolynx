@@ -22,6 +22,7 @@ Functions:
 """
 
 import asyncio
+from asyncio import events
 import ctypes
 import logging
 import threading
@@ -84,7 +85,7 @@ WNDPROCTYPE = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, UMSG, WPARAM, LPARAM)
 
 
 logging.basicConfig(
-    level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),)
+    level=logging.WARNING, format=LOG_FMT, handlers=(TextualHandler(),)
 )
 
 
@@ -116,20 +117,20 @@ class USBIPDUnbind(Message):
     device: USBIPDDevice
 
 
-USBIPDMessage: TypeAlias = Union[
-    USBIPDAttach, USBIPDBind, USBIPDDetach, USBIPDUnbind
-]
-
-# type variable M is bound to USBIPDMessage
-M = TypeVar("M", bound=USBIPDMessage)
-
-
 @dataclass
 class WMDeviceChange(Message):
     """`WM_DEVICECHANGE` message for refreshing connected device state."""
 
     broadcast_type: int
     broadcast_port: str
+
+
+USBIPDMessage: TypeAlias = Union[
+    USBIPDAttach, USBIPDBind, USBIPDDetach, USBIPDUnbind
+]
+
+# type variable M is bound to USBIPDMessage
+M = TypeVar("M", bound=USBIPDMessage)
 
 
 class DeviceNotifier:
@@ -144,6 +145,7 @@ class DeviceNotifier:
         self,
         loop: asyncio.AbstractEventLoop,
         callback: Callable[[DBCEvent, str], None],
+        log_level: int = logging.WARNING,
     ) -> None:
         """Initialises the `DeviceNotifier` class.
 
@@ -153,12 +155,15 @@ class DeviceNotifier:
             callback: A callback, which will receive the `WM_DEVICECHANGE`
                 event message `wparam` & `dbcp_name` of the port device.
         """
+        if not callable(callback):
+            raise ValueError("Callback attribute is not callable")
         self._loop = loop
         self._callback = callback
         self._thread = threading.Thread(target=self.message_pump, daemon=True)
         self._hwnd_ready = threading.Event()
         self._hwnd = None
         self._log = logging.getLogger(self.__class__.__name__)
+        self._log.setLevel(log_level)
 
     @property
     def callback(self) -> Callable[[DBCEvent, str], None]:
@@ -285,7 +290,6 @@ class DeviceNotifier:
         self.log.debug(f"{umsg=:04X}, {wparam=:04X}, {lparam=:04X}")
         try:
             match umsg:
-                # on `WM_DEVICECHANGE` without a NULL `lparam`
                 case win32con.WM_DEVICECHANGE if lparam:
                     self.process_device_change(umsg, wparam, lparam)
                 case win32con.WM_CLOSE | win32con.WM_DESTROY:
@@ -350,29 +354,47 @@ class DeviceNotifier:
                 wparam: DBCEvent, lparam: int
             ) -> None:
                 """Calls TUI callback if device type is `DBT_DEVTYP_PORT`."""
-                hdr = DEV_BROADCAST_HDR.from_address(lparam)
-                if hdr.dbch_devicetype == DBCDeviceType.DBT_DEVTYP_PORT:
-                    interface = DEV_BROADCAST_PORT_W.from_address(lparam)
-                    dbcp_name = ctypes.wstring_at(
-                        ctypes.addressof(interface)
-                        + DEV_BROADCAST_PORT_W.dbcp_name.offset
-                    )
-                    if not callable(self.callback):
-                        self.log.error("Callback attribute is not callable")
-                        return
-                    self.call_soon_threadsafe(self.callback, wparam, dbcp_name)
+
+                dbcp_name = self._get_devtype_port_name(lparam)
+                if dbcp_name is None:
+                    return
+                self.call_soon_threadsafe(self.callback, wparam, dbcp_name)
 
             match wparam:
-                case DBCEvent.DBT_DEVNODES_CHANGED:
-                    self.log.info("`DBT_DEVNODES_CHANGED`")
+                case DBCEvent.DBT_DEVNODES_CHANGED if lparam:
+                    self.log.debug("`DBT_DEVNODES_CHANGED`")
                 case DBCEvent.DBT_DEVICEARRIVAL if lparam:
                     post_devtype_port_message(wparam, lparam)
-                case DBCEvent.DBT_DEVICEREMOVECOMPLETE if lparam:
+                case DBCEvent.DBT_DEVICEREMOVECOMPLETE:
                     post_devtype_port_message(wparam, lparam)
                 case _:
                     self.log.warning("Unhandled device-change event")
         except Exception as e:
             self.log.exception(e)
+
+    def _get_devtype_port_name(self, lparam: int) -> str | None:
+        """Get the DBCP name of a serial/port device.
+
+        When a device is attached to WSL and is disconnected, this triggers a
+        `DBT_DEVICEREMOVECOMPLETE` event with a NULL `lparam`. Outside a WSL
+        context, we see a valid `lparam` address we can test.
+
+        Args:
+            lparam: A pointer to the interface structure.
+
+        Returns:
+            A friendly name for PORT devices or `None` for other device types.
+        """
+        if lparam == NULL:
+            return "UNK"
+
+        hdr = DEV_BROADCAST_HDR.from_address(lparam)
+        if hdr.dbch_devicetype == DBCDeviceType.DBT_DEVTYP_PORT:
+            serial = DEV_BROADCAST_PORT_W.from_address(lparam)
+            name_offset = DEV_BROADCAST_PORT_W.dbcp_name.offset
+            return ctypes.wstring_at(ctypes.addressof(serial) + name_offset)
+        # not a PORT/SERIAL device
+        return None
 
 
 @contextmanager
@@ -444,7 +466,7 @@ class TUI(App):
 
     CSS_PATH: ClassVar[CSSPathType | None] = "app.tcss"
 
-    def __init__(self, log_level: int = logging.INFO) -> None:
+    def __init__(self, log_level: int = logging.WARNING) -> None:
         """Initialises TUI App.
 
         Args:
@@ -537,17 +559,6 @@ class TUI(App):
             yield TUINavigation()
         yield TUIFooter(id="footer")
 
-    def on_mount(self) -> None:
-        """Handles TUI `mount` event."""
-        self.register_theme(GALAXY_THEME)
-        self.app.theme = "galaxy"
-
-        self.initial_populate_devices()
-
-        running_loop = asyncio.get_running_loop()
-        self._notifier = DeviceNotifier(running_loop, self.handle_wm_events)
-        self._notifier.start()
-
     def get_connected_row(self, device: USBIPDDevice) -> list[Text]:
         """Parses a row from a USBIPDDevice object.
 
@@ -631,10 +642,6 @@ class TUI(App):
         except LookupError as e:
             self.__log.exception(e)
 
-    def _check_cache(self, device: USBIPDDevice) -> bool:
-        """Checks a device against the connection cache."""
-        return self._connection_cache.get(str(device.busid)) != device
-
     def incremental_device_update(self) -> None:
         """Updates `DataTable` widgets to reflect device changes."""
 
@@ -654,6 +661,183 @@ class TUI(App):
         self._update_modified_devices(updated, connections)
         self._connection_cache = connections
 
+    def initial_populate_devices(self) -> None:
+        """Populates the device `DataTable`."""
+        self.table_connected.clear()
+
+        new_cache = {d.busid: d for d in run_usbipd_state() if d.busid}
+        for busid, device in new_cache.items():
+            con_row = self.get_connected_row(device)
+            self.table_connected.add_row(*con_row, key=busid)
+            if device.isbound:
+                per_row = self.get_persisted_row(device)
+                self.table_persisted.add_row(*per_row, key=busid)
+        self._connection_cache = new_cache
+
+    def on_mount(self) -> None:
+        """Handles TUI `mount` event."""
+        self.register_theme(GALAXY_THEME)
+        self.app.theme = "galaxy"
+
+        self.initial_populate_devices()
+
+        running_loop = asyncio.get_running_loop()
+        self._notifier = DeviceNotifier(
+            running_loop, self.handle_wm_events, self.__log.level
+        )
+        self._notifier.start()
+
+    def on_unmount(self) -> None:
+        """Handles TUI `unmount` event."""
+        self._notifier.stop()
+        self.thread_exit.set()
+
+    @work(thread=True)
+    @with_device_lock
+    def worker_attach_device(self, msg: USBIPDAttach) -> None:
+        """Handles blocking `run_usbipd_bind` & `run_usbipd_attach` calls.
+
+        Args:
+            msg: Device information message for `usbipd` commands.
+        """
+        if (device := msg.device).busid is None:
+            return
+
+        try:
+            active_distro = run_wsl_list()
+        except WSLError as e:
+            self.__log.error(e, exc_info=True)
+            self.notify(str(e), title="WSL Error", severity="error")
+            return
+
+        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
+        try:
+            if not active_distro:
+                self.notify("No active WSL distro", severity="warning")
+                return
+
+            for connected_device in run_usbipd_state():
+                match connected_device:
+                    # `busid` matches, but device is not bound or attached
+                    case USBIPDDevice(busid=device.busid, isbound=False):
+                        run_usbipd_bind(device.busid)
+                        run_usbipd_attach(device.busid)
+                        break
+                    # `busid` matches, but device is bound & not attached
+                    case USBIPDDevice(busid=device.busid, isattached=False):
+                        run_usbipd_attach(device.busid)
+                        break
+                    case _:
+                        continue
+        except USBIPDError as e:
+            self.__log.warning(e)
+            self.notify(str(e), title="USBIPD Error", severity="warning")
+        else:
+            self.notify(device.description, title="Attached", timeout=1)
+        finally:
+            self.incremental_device_update()
+
+    @work(thread=True)
+    @with_device_lock
+    def worker_bind_device(self, msg: USBIPDBind) -> None:
+        """Handles blocking `run_usbipd_bind` calls.
+
+        Args:
+            msg: Device information message for `usbipd` commands.
+        """
+        if (device := msg.device).busid is None:
+            return
+
+        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
+        try:
+            for connected_device in run_usbipd_state():
+                match connected_device:
+                    # `busid` matches, but device is not bound or attached
+                    case USBIPDDevice(busid=device.busid, isbound=False):
+                        run_usbipd_bind(device.busid)
+                        break
+                    # `busid` matches, but device is bound & not attached
+                    case USBIPDDevice(busid=device.busid, isattached=False):
+                        self.__log.info("Device is already bound")
+                        break
+                    case _:
+                        continue
+        except USBIPDError as e:
+            self.__log.exception(e)
+            self.notify(str(e), title="USBIPD Error", severity="warning")
+        else:
+            self.notify(device.description, title="Bound", timeout=1)
+        finally:
+            self.incremental_device_update()
+
+    @work(thread=True)
+    @with_device_lock
+    def worker_detach_device(self, msg: USBIPDDetach) -> None:
+        """Handles blocking `run_usbipd_detach` calls.
+
+        Args:
+            msg: Device information message for `usbipd` commands.
+        """
+        if (device := msg.device).busid is None:
+            return
+
+        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
+        try:
+            for connected_device in run_usbipd_state():
+                match connected_device:
+                    # `busid` matches & device is attached
+                    case USBIPDDevice(busid=device.busid, isattached=True):
+                        run_usbipd_detach(device.busid)
+                        break
+                    # `busid` matches, but device is not attached
+                    case USBIPDDevice(busid=device.busid, isattached=False):
+                        self.__log.warning("Device not found")
+                        break
+                    case _:
+                        continue
+        except USBIPDError as e:
+            self.__log.exception(e)
+            self.notify(str(e), title="USBIPD Error", severity="warning")
+        else:
+            self.notify(device.description, title="Detached", timeout=1)
+        finally:
+            # ensure UI is synced after detach
+            self.incremental_device_update()
+
+    @work(thread=True)
+    @with_device_lock
+    def worker_unbind_device(self, msg: USBIPDUnbind) -> None:
+        """Handles blocking `run_usbipd_unbind` calls"""
+
+        if (device := msg.device).busid is None:
+            return
+
+        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
+        try:
+            for connected_device in run_usbipd_state():
+                match connected_device:
+                    # `busid` matches, & device is bound & possibly attached
+                    case USBIPDDevice(busid=device.busid, isbound=True):
+                        run_usbipd_unbind(device.busid)
+                        break
+                    # `busid` matches, but device is not bound
+                    case USBIPDDevice(busid=device.busid, isbound=False):
+                        self.__log.warning("Device not found")
+                        break
+                    case _:
+                        continue
+        except USBIPDError as e:
+            self.__log.exception(e)
+            self.notify(str(e), title="USBIPD Error", severity="warning")
+        else:
+            self.notify(device.description, title="Unbound")
+        finally:
+            self.incremental_device_update()
+
+    def _check_cache(self, device: USBIPDDevice) -> bool:
+        """Checks a device against the connection cache."""
+        return self._connection_cache.get(str(device.busid)) != device
+
     def _update_removed_devices(self, busids: set[str]) -> None:
         """Removes rows in connected & persisted `DataTable` widgets.
 
@@ -663,9 +847,11 @@ class TUI(App):
         # removed devices
         for busid in busids:
             try:
-                self.table_connected.remove_row(busid)
-                if self.table_persisted.rows.get(RowKey(busid)):
-                    self.table_persisted.remove_row(busid)
+                row_key = RowKey(busid)
+                if row_key in self.table_connected.rows:
+                    self.table_connected.remove_row(row_key)
+                if row_key in self.table_persisted.rows:
+                    self.table_persisted.remove_row(row_key)
             except KeyError as e:
                 self.__log.warning(f"Missing row @ `{busid}`", exc_info=True)
 
@@ -715,166 +901,6 @@ class TUI(App):
             elif row_in_persisted:
                 self.table_persisted.remove_row(busid)
 
-    def initial_populate_devices(self) -> None:
-        """Populates the device `DataTable`."""
-        self.table_connected.clear()
-
-        new_cache = {d.busid: d for d in run_usbipd_state() if d.busid}
-        for busid, device in new_cache.items():
-            con_row = self.get_connected_row(device)
-            self.table_connected.add_row(*con_row, key=busid)
-            if device.isbound:
-                per_row = self.get_persisted_row(device)
-                self.table_persisted.add_row(*per_row, key=busid)
-        self._connection_cache = new_cache
-
-    def on_unmount(self) -> None:
-        """Handles TUI `unmount` event."""
-        self._notifier.stop()
-        self.thread_exit.set()
-
-    @work(thread=True)
-    @with_device_lock
-    def worker_attach_device(self, msg: USBIPDAttach) -> None:
-        """Handles blocking `run_usbipd_bind` & `run_usbipd_attach` calls.
-
-        Args:
-            msg: Device information message for `usbipd` commands.
-        """
-        if (device := msg.device).busid is None:
-            return
-
-        try:
-            active_distro = run_wsl_list()
-        except WSLError as e:
-            self.__log.error(e, exc_info=True)
-            self.notify(str(e), title="WSL Error", severity="error")
-            return
-
-        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
-        try:
-            if not active_distro:
-                self.notify("No active WSL distro", severity="warning")
-                return
-
-            for connected_device in run_usbipd_state():
-                match connected_device:
-                    # `busid` matches, but device is not bound or attached
-                    case USBIPDDevice(busid=device.busid, isbound=False):
-                        run_usbipd_bind(device.busid)
-                        run_usbipd_attach(device.busid)
-                        break
-                    # `busid` matches, but device is bound & not attached
-                    case USBIPDDevice(busid=device.busid, isattached=False):
-                        run_usbipd_attach(device.busid)
-                        break
-                    case _:
-                        continue
-        except USBIPDError as e:
-            self.__log.warning(e)
-            self.notify(str(e), title="USBIPD Error", severity="warning")
-        else:
-            self.notify(device.description, title="Attached")
-        finally:
-            self.incremental_device_update()
-
-    @work(thread=True)
-    @with_device_lock
-    def worker_bind_device(self, msg: USBIPDBind) -> None:
-        """Handles blocking `run_usbipd_bind` calls.
-
-        Args:
-            msg: Device information message for `usbipd` commands.
-        """
-        if (device := msg.device).busid is None:
-            return
-
-        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
-        try:
-            for connected_device in run_usbipd_state():
-                match connected_device:
-                    # `busid` matches, but device is not bound or attached
-                    case USBIPDDevice(busid=device.busid, isbound=False):
-                        run_usbipd_bind(device.busid)
-                        break
-                    # `busid` matches, but device is bound & not attached
-                    case USBIPDDevice(busid=device.busid, isattached=False):
-                        self.__log.info("Device is already bound")
-                        break
-                    case _:
-                        continue
-        except USBIPDError as e:
-            self.__log.exception(e)
-            self.notify(str(e), title="USBIPD Error", severity="warning")
-        else:
-            self.notify(device.description, title="Bound")
-        finally:
-            self.incremental_device_update()
-
-    @work(thread=True)
-    @with_device_lock
-    def worker_detach_device(self, msg: USBIPDDetach) -> None:
-        """Handles blocking `run_usbipd_detach` calls.
-
-        Args:
-            msg: Device information message for `usbipd` commands.
-        """
-        if (device := msg.device).busid is None:
-            return
-
-        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
-        try:
-            for connected_device in run_usbipd_state():
-                match connected_device:
-                    # `busid` matches & device is attached
-                    case USBIPDDevice(busid=device.busid, isattached=True):
-                        run_usbipd_detach(device.busid)
-                        break
-                    # `busid` matches, but device is not attached
-                    case USBIPDDevice(busid=device.busid, isattached=False):
-                        self.__log.warning("Device not found")
-                        break
-                    case _:
-                        continue
-        except USBIPDError as e:
-            self.__log.exception(e)
-            self.notify(str(e), title="USBIPD Error", severity="warning")
-        else:
-            self.notify(device.description, title="Detached")
-        finally:
-            # ensure UI is synced after detach
-            self.incremental_device_update()
-
-    @work(thread=True)
-    @with_device_lock
-    def worker_unbind_device(self, msg: USBIPDUnbind) -> None:
-        """Handles blocking `run_usbipd_unbind` calls"""
-
-        if (device := msg.device).busid is None:
-            return
-
-        # mitigate `usbipd_bind` & `usbipd_attach` race conditions
-        try:
-            for connected_device in run_usbipd_state():
-                match connected_device:
-                    # `busid` matches, & device is bound & possibly attached
-                    case USBIPDDevice(busid=device.busid, isbound=True):
-                        run_usbipd_unbind(device.busid)
-                        break
-                    # `busid` matches, but device is not bound
-                    case USBIPDDevice(busid=device.busid, isbound=False):
-                        self.__log.warning("Device not found")
-                        break
-                    case _:
-                        continue
-        except USBIPDError as e:
-            self.__log.exception(e)
-            self.notify(str(e), title="USBIPD Error", severity="warning")
-        else:
-            self.notify(device.description, title="Unbound")
-        finally:
-            self.incremental_device_update()
-
 
 def main() -> None:
     """Main application entry."""
@@ -882,7 +908,7 @@ def main() -> None:
         # a nonzero value is considered 'abnormal' termination
         sys.exit(NULL) if run_as_administrator() else sys.exit(1)
     try:
-        app = TUI()
+        app = TUI(log_level=logging.DEBUG)
         app.run()
     except KeyboardInterrupt as e:
         logging.info("`KeyboardInterrupt` received")

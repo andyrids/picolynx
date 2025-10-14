@@ -149,6 +149,16 @@ class DynamicWidthTable(DataTable[Any]):
         """
         self._row_selected_key = event.row_key
 
+    def on_data_table_row_highlighted(
+        self, event: DataTable.RowHighlighted
+    ) -> None:
+        """Handles `DataTable` row highlight events.
+
+        Args:
+            event: `RowHighlighted` event message.
+        """
+        self._row_selected_key = event.row_key
+
     def on_mount(self) -> None:
         """Handles the DataTable setup on mount."""
         # set column `auto_width=True` via `width=None`

@@ -4,7 +4,6 @@ import csv
 import ctypes
 import re
 import subprocess
-from logging import basicConfig, getLogger
 from typing import TYPE_CHECKING
 
 from picolynx.exceptions import EnablePnPAuditError
@@ -15,9 +14,6 @@ if TYPE_CHECKING:
 
 
 LOG_FMT = "%(levelname)-8s | %(name)s.%(funcName)s:%(lineno)d - %(message)s"
-
-basicConfig(level="NOTSET", format=LOG_FMT, handlers=(TextualHandler(),))
-logger = getLogger(__name__)
 
 
 def is_administrator() -> bool:
@@ -35,7 +31,7 @@ def is_pnp_audit() -> bool:
         True if policy inclusion setting is success & failure, else False.
     """
     pnp_status = subprocess.Popen(
-        ["auditpol", "/get", "/subcategory:Plug and Play Eventss", "/r"],
+        ["auditpol", "/get", "/subcategory:Plug and Play Events", "/r"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -68,9 +64,7 @@ def parse_instanceid(instanceid: str) -> tuple[str, str, str]:
     if not instanceid.startswith("USB\\"):
         return ("UNK", "UNK", "UNK")
 
-    ptn = (
-        r"VID_(?P<VID>[A-Z0-9]{4})&PID_(?P<PID>[A-Z0-9]{4})(?:&MI_\d{2})?\\(?P<SER>.+)"
-    )
+    ptn = r"VID_(?P<VID>[A-Z0-9]{4})&PID_(?P<PID>[A-Z0-9]{4})(?:&MI_\d{2})?\\(?P<SER>.+)"  # noqa: E501
     if match := re.search(ptn, instanceid):
         return (match["VID"], match["PID"], match["SER"])
     return ("UNK", "UNK", "UNK")
