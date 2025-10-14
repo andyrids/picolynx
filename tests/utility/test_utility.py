@@ -12,9 +12,12 @@ from picolynx.utility._utility import (
 from picolynx.exceptions import EnablePnPAuditError
 
 
-AUDITPOL_STDERR = "Error 0x00000057 occurred:\n\nThe parameter is incorrect.\n\n\n\n"
+AUDITPOL_STDERR = (
+    "Error 0x00000057 occurred:\n\nThe parameter is incorrect.\n\n\n\n"
+)
 
 # --- is_administrator ---
+
 
 @patch("ctypes.windll.shell32.IsUserAnAdmin", return_value=1)
 def test_is_administrator_when_true(mock_is_admin: MagicMock) -> None:
@@ -31,6 +34,7 @@ def test_is_administrator_when_false(mock_is_admin: MagicMock) -> None:
 
 
 # --- parse_instanceid ---
+
 
 @pytest.mark.parametrize(
     "instance_id, expected",
@@ -53,6 +57,7 @@ def test_parse_instanceid(instance_id, expected):
 
 
 # --- is_pnp_audit ---
+
 
 @patch("subprocess.Popen")
 def test_is_pnp_audit_when_enabled(mock_popen: MagicMock) -> None:
@@ -100,7 +105,9 @@ def test_is_pnp_audit_process_error(mock_popen: MagicMock) -> None:
 def test_is_pnp_audit_timeout(mock_popen: MagicMock) -> None:
     """Tests `is_pnp_audit` subprocess timeout."""
     mock_proc = MagicMock()
-    mock_proc.communicate.side_effect = TimeoutExpired(cmd="auditpol", timeout=5)
+    mock_proc.communicate.side_effect = TimeoutExpired(
+        cmd="auditpol", timeout=5
+    )
     mock_popen.return_value = mock_proc
 
     with pytest.raises(EnablePnPAuditError):

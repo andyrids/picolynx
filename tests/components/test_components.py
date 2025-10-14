@@ -123,11 +123,8 @@ async def test_tui_header_compose(
         title = pilot.app.query_one("#header-title", Label)
         hostname = pilot.app.query_one("#header-hostname", Label)
         # assuming a version is set, we check for the static part
-        assert "[b]PicoLynx[/]" in str(title.renderable)
-        if isinstance(hostname.renderable, Text):
-            assert hostname.renderable.plain == "testuser@testhost"
-        else:
-            assert str(hostname.renderable) == "testuser@testhost"
+        assert "[b]PicoLynx[/]" in str(title.content)
+        assert str(hostname.content) == "testuser@testhost"
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,7 @@ DEVICE_2_BUSID = "2-2"
 DEVICE_3_DESC = "USB Serial Device (COM3)"
 DEVICE_3_BUSID = "3-3"
 
+
 async def test_app_startup(
     mock_run_usbipd_state: MagicMock | AsyncMock,
 ) -> None:
@@ -72,44 +73,6 @@ async def test_device_from_selected(
         assert app.device_from_selected(None) is None
 
 
-# async def test_manual_actions_post_messages(
-#     mock_run_usbipd_state: MagicMock | AsyncMock,
-# ) -> None:
-#     """Test that manual actions (key presses) post the correct messages."""
-#     app = TUI()
-#     async with app.run_test() as pilot:
-#         # Wait for the table to be populated and select the first row
-#         await pilot.pause()
-#         table = pilot.app.query_one("#table-connected", ConnectedTable)
-
-#         index = table.get_row_index(DEVICE_BUSID)
-#         table.move_cursor(row=index)
-#         table.action_select_cursor()
-
-#         messages = []
-#         # Patch post_message to capture messages instead of processing them
-#         with patch.object(app, "post_message", messages.append):
-#             await pilot.press("a")  # attach
-#             assert Key(key="a", character="a") in messages
-#             # assert isinstance(messages[0], USBIPDAttach)
-#             # assert messages[0].device.busid == DEVICE_BUSID
-
-#             await pilot.press("b")  # bind
-#             assert len(messages) == 4
-#             # assert isinstance(messages[1], USBIPDBind)
-#             # assert messages[1].device.busid == DEVICE_BUSID
-
-#             # await pilot.press("d")  # detach
-#             # assert len(messages) == 3
-#             # assert isinstance(messages[2], USBIPDDetach)
-#             # assert messages[2].device.busid == DEVICE_BUSID
-
-#             # await pilot.press("u")  # unbind
-#             # assert len(messages) == 4
-#             # assert isinstance(messages[3], USBIPDUnbind)
-#             # assert messages[3].device.busid == DEVICE_BUSID
-
-
 async def test_incremental_device_update(
     mock_run_usbipd_state: MagicMock | AsyncMock,
 ) -> None:
@@ -117,8 +80,12 @@ async def test_incremental_device_update(
     app = TUI()
     async with app.run_test() as pilot:
         await pilot.pause()
-        table_connected = pilot.app.query_one("#table-connected", ConnectedTable)
-        table_persisted = pilot.app.query_one("#table-persisted", PersistedTable)
+        table_connected = pilot.app.query_one(
+            "#table-connected", ConnectedTable
+        )
+        table_persisted = pilot.app.query_one(
+            "#table-persisted", PersistedTable
+        )
 
         # Initial state
         assert table_connected.row_count == 1
@@ -150,7 +117,10 @@ async def test_incremental_device_update(
             await pilot.pause()
             assert table_connected.row_count == 1
             assert table_persisted.row_count == 1
-            assert table_connected.get_row(DEVICE_2_BUSID)[0].plain == DEVICE_2_DESC
+            assert (
+                table_connected.get_row(DEVICE_2_BUSID)[0].plain
+                == DEVICE_2_DESC
+            )
             assert DEVICE_2_BUSID in app._connection_cache
 
         # --- Test Device Modification ---

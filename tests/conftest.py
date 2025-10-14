@@ -18,6 +18,7 @@ DEVICE_2_BUSID = "2-2"
 
 DEVICE_C_DESC = "USB Serial Device (COM3)"
 
+
 @pytest.fixture
 def sample_device_data() -> dict[str, Any]:
     """Provides a sample dictionary of USBIPD device data."""
@@ -34,8 +35,8 @@ def sample_device_data() -> dict[str, Any]:
 
 @pytest.fixture
 def mock_run_usbipd_state(
-        sample_device_data: MagicMock
-    ) -> Generator[MagicMock | AsyncMock, Any, None]:
+    sample_device_data: MagicMock,
+) -> Generator[MagicMock | AsyncMock, Any, None]:
     """Fixture to mock run_usbipd_state globally for tests."""
 
     mock_device = USBIPDDevice(**sample_device_data)
