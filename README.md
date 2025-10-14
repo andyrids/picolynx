@@ -7,6 +7,9 @@ with `pywin32` and leverages `usbipd-win` to manage device connections.
 
 https://github.com/user-attachments/assets/d5382270-cae8-4eb4-90a6-28ccb96e5250
 
+> [!CAUTION]
+> If a device is disconnected when attached, it will remain in the connected device table due to the way Windows only registers a `DBT_DEVNODES_CHANGED` event without any event-specific data and not a `DBT_DEVICEREMOVECOMPLETE` event. `DBT_DEVNODES_CHANGED` events usually occur before informative `DBT_DEVICEARRIVAL` or `DBT_DEVICEREMOVECOMPLETE` events, and reacting to these and updating, creates race conditions.
+
 ## Features
 
 - **Manual control**: Easily attach, bind, detach, or unbind devices using keyboard shortcuts.
@@ -18,11 +21,11 @@ https://github.com/user-attachments/assets/d5382270-cae8-4eb4-90a6-28ccb96e5250
 
 ## Requirements
 
-Windows 10/11 is the only supported platform, given the nature of this package. `PicoLynx` requires administrator privileges to interact with USB devices. If not run as administrator, it will prompt for elevation.
+Windows 10/11 is the only supported platform, given the nature of this package. `PicoLynx` requires administrator privileges to interact with USB/Serial devices. If not run as administrator, it will prompt for elevation.
 
 ### Install `usbipd-win`
 
-This tool enables sharing locally connected USB devices to other machines, including Hyper-V guests and WSL 2. Full instructions are available @ [usbipd-win Github](https://github.com/dorssel/usbipd-win). Window package manager can be used to install the tool:
+This tool enables sharing locally connected USB devices to other machines, including Hyper-V guests and WSL 2. Full instructions are available at [usbipd-win Github](https://github.com/dorssel/usbipd-win). Window package manager can be used to install the tool:
 
 ```sh
 winget install usbipd
@@ -128,6 +131,9 @@ Alias for:
 ```sh
 uv run textual run --dev src/picolynx/__main__.py
 ```
+
+> [!NOTE]
+> Logging level can be modified in `__main__.py` by changing the `LOG_LEVEL` value.
 
 ## Acknowledgements
 

@@ -83,9 +83,10 @@ LPARAM: TypeAlias = ctypes.c_ssize_t
 
 WNDPROCTYPE = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, UMSG, WPARAM, LPARAM)
 
+LOG_LEVEL = logging.WARNING
 
 logging.basicConfig(
-    level=logging.WARNING, format=LOG_FMT, handlers=(TextualHandler(),)
+    level=LOG_LEVEL, format=LOG_FMT, handlers=(TextualHandler(),)
 )
 
 
@@ -183,7 +184,7 @@ class DeviceNotifier:
     @hwnd.setter
     def hwnd(self, window_handle: int | None) -> None:
         """Sets the window handle property."""
-        if window_handle == NULL:
+        if window_handle == NULL or window_handle is None:
             raise RuntimeError("Window handle (`hwnd`) is NULL")
         self._hwnd = window_handle
         self._hwnd_ready.set()
@@ -594,6 +595,7 @@ class TUI(App):
             msg: A `USBIPDAttachDevice` message.
         """
         if not msg.device.isattached:
+            # handles unbound before attach logic
             self.worker_attach_device(msg)
 
     @on(USBIPDBind)
@@ -890,7 +892,7 @@ class TUI(App):
 
             # update connected devices `DataTable` row
             con_row = self.get_connected_row(updated_device)
-            for key, value in enumerate(con_row, start=1):
+            for key, value in enumerate(con_row, start=0):
                 self.table_connected.update_cell(busid, str(key), value)
 
             row_in_persisted = self.table_persisted.rows.get(RowKey(busid))
@@ -906,9 +908,9 @@ def main() -> None:
     """Main application entry."""
     if not is_administrator():
         # a nonzero value is considered 'abnormal' termination
-        sys.exit(NULL) if run_as_administrator() else sys.exit(1)
+        sys.exit(0) if run_as_administrator() else sys.exit(1)
     try:
-        app = TUI(log_level=logging.DEBUG)
+        app = TUI(log_level=LOG_LEVEL)
         app.run()
     except KeyboardInterrupt as e:
         logging.info("`KeyboardInterrupt` received")

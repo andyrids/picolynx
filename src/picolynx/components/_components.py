@@ -139,7 +139,7 @@ class DynamicWidthTable(DataTable[Any]):
         await asyncio.sleep(0.1)
         new_width = self.calculate_width(self.size.width)
         if self.update_previous_width(new_width):
-            self.columns[ColumnKey("1")].width = new_width
+            self.columns[ColumnKey("0")].width = new_width
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handles `DataTable` row selection events.
@@ -162,10 +162,10 @@ class DynamicWidthTable(DataTable[Any]):
     def on_mount(self) -> None:
         """Handles the DataTable setup on mount."""
         # set column `auto_width=True` via `width=None`
-        self.add_column(self.dynamic_label, width=None, key="1")
+        self.add_column(self.dynamic_label, width=None, key="0")
 
         static_columns = zip(self.static_labels, self.static_widths)
-        for key, (label, width) in enumerate(static_columns, start=2):
+        for key, (label, width) in enumerate(static_columns, start=1):
             self.add_column(label, width=width, key=str(key))
         # after initial layout has settled, we trigger a resize
         self.call_later(self.initial_resize)
@@ -183,7 +183,7 @@ class DynamicWidthTable(DataTable[Any]):
         await asyncio.sleep(0.1)
         new_width = self.calculate_width(event.size.width)
         if self.update_previous_width(new_width):
-            column = self.columns[ColumnKey("1")]
+            column = self.columns[ColumnKey("0")]
             column.auto_width = new_width > column.content_width
             column.width = new_width
             self.refresh_column(0)
