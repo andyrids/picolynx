@@ -14,3 +14,6 @@ dev:
 
 test:
     uv run pytest --cov=picolynx --cov-report=term -vv
+
+lint:
+    uv run ruff format; uv run ruff check --fix
