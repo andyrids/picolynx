@@ -18,22 +18,41 @@ https://github.com/user-attachments/assets/d5382270-cae8-4eb4-90a6-28ccb96e5250
 
 ## Requirements
 
-- Windows 10/11 (Windows-only)
-- `usbipd-win` (must be installed & available in your PATH)
-- `WSL` with at least one running distribution (for attachment)
-- Python 3.11+ (recommended via Astral's uv package manager)
+Windows 10/11 is the only supported platform, given the nature of this package. `PicoLynx` requires administrator privileges to interact with USB devices. If not run as administrator, it will prompt for elevation.
 
-`PicoLynx` requires administrator privileges to interact with USB devices. If not run as administrator, it will prompt for elevation.
+### Install `usbipd-win`
 
-## Installation
+This tool enables sharing locally connected USB devices to other machines, including Hyper-V guests and WSL 2. Full instructions are available @ [usbipd-win Github](https://github.com/dorssel/usbipd-win). Window package manager can be used to install the tool:
 
-To install Astral `uv`, use the following command:
+```sh
+winget install usbipd
+```
+
+### Install `WSL`
+
+Microsoft WSL documentation is available @ [learn.microsoft.com](https://learn.microsoft.com/en-us/windows/wsl/install). The following Windows features are required, which can be enabled by searching for 'Turn Windows features on or off' in the Start Menu:
+
+- Virtual Machine Platform
+- Windows Hypervisor Platform
+- Windows Subsystem for Linux
+
+Its worth updating WSL if newly enabled:
+
+```sh
+wsl --update
+```
+
+To install a Linux distribution, refer to the guide listed above.
+
+## `PicoLynx` Installation
+
+[Astral uv](https://docs.astral.sh/uv/) package manager is recommended for a fast, isolated, and reliable install. To install `uv`, use the following command:
 
 ```sh
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Astral uv package manager is recommended for a fast, isolated, and reliable install. You can install `PicoLynx` globally with the following `uv` command:
+You can install `PicoLynx` globally with the following `uv` command:
 
 ```sh
 uv tool install picolynx
