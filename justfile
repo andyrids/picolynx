@@ -13,7 +13,7 @@ dev:
     uv run textual run --dev src/picolynx/__main__.py
 
 test:
-    uv run pytest --cov=picolynx --cov-report=term -vv
+    uv run pytest --cov=picolynx --cov-report=term-missing -vv
 
 lint:
     uv run ruff format; uv run ruff check --fix

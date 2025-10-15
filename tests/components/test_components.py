@@ -15,11 +15,11 @@ STATIC_COLUMN_B = "STATIC B"
 STATIC_COLUMN_C = "STATIC C"
 STATIC_COLUMN_D = "STATIC D"
 
-DYNAMIC_COLUMN_KEY = ColumnKey("1")
-STATIC_COLUMN_A_KEY = ColumnKey("2")
-STATIC_COLUMN_B_KEY = ColumnKey("3")
-STATIC_COLUMN_C_KEY = ColumnKey("4")
-STATIC_COLUMN_D_KEY = ColumnKey("5")
+DYNAMIC_COLUMN_KEY = ColumnKey("0")
+STATIC_COLUMN_A_KEY = ColumnKey("1")
+STATIC_COLUMN_B_KEY = ColumnKey("2")
+STATIC_COLUMN_C_KEY = ColumnKey("3")
+STATIC_COLUMN_D_KEY = ColumnKey("4")
 
 # --- DynamicWidthTable Tests ---
 
