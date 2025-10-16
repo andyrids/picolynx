@@ -1,12 +1,14 @@
 # PicoLynx - Attach Microcontrollers to WSL
 
-PicoLynx is a Windows-only TUI (Text-based User Interface) application for attaching and detaching microcontroller devices to WSL (Windows Subsystem for Linux) distributions. It monitors Windows [`WM_DEVICECHANGE`](https://learn.microsoft.com/en-us/windows/win32/devio/wm-devicechange) messages
-with `pywin32` and leverages `usbipd-win` to manage device connections.
+PicoLynx is a Windows-only TUI (Text-based User Interface) application for attaching and detaching microcontroller devices to WSL (Windows Subsystem for Linux) distributions. It monitors Windows [`WM_DEVICECHANGE`](https://learn.microsoft.com/en-us/windows/win32/devio/wm-devicechange) messages with `pywin32` and leverages `usbipd-win` to manage device connections.
 
-> [!TIP]
-> The TUI will react to USB Serial and USB Storage device connections and can run `usbipd-win` commands on any device in its interface.
+The TUI will react to USB Serial and USB Storage device connections and can run `usbipd-win` commands on any device in its interface.
 
 ![PicoLynx TUI](docs/img/picolynx_menu.png)
+
+![PicoLynx TUI](docs/img/picolynx_nord.svg)
+
+![PicoLynx TUI](docs/img/picolynx_persisted.svg)
 
 https://github.com/user-attachments/assets/d5382270-cae8-4eb4-90a6-28ccb96e5250
 
@@ -49,7 +51,7 @@ Its worth updating WSL if newly enabled:
 wsl --update
 ```
 
-To install a Linux distribution, refer to the guide listed above.
+To install a Linux distribution, refer to the guide listed above, or see my Void Linux & Alpine Linux WSL repo guides for an example of a manual distro installation.
 
 ## `PicoLynx` Installation
 
@@ -85,12 +87,15 @@ uvx "git+https://github.com/andyrids/picolynx.git"
 
 ## Keyboard Shortcuts
 
-| Key | Action |
-| --- | ------ |
-|  a  | Attach |
-|  b  | Bind   |
-|  d  | Detach |
-|  u  | Unbind |
+The TUI command palette can be opened with `ctrl + p`, which has options for theme changes and the full command help panel. Tabs can be navigated and switched to with the `tab` key and tables can be traversed with the arrow keys.
+
+| Key | Action  |
+| --- | ------- |
+|  a  | Attach  |
+|  b  | Bind    |
+|  d  | Detach  |
+|  u  | Unbind  |
+|  r  | Refresh |
 
 Select a device in the table and press the corresponding key to perform the action.
 
@@ -108,7 +113,7 @@ cd picolynx
 
 The `just` command runner ([GitHub page](https://github.com/casey/just)) is a handy way to save and run project-specific commands, which are written in a file called `justfile`.
 
-If you use `just`, you can add use the commands below to run `PicoLynx` in development mode, with the `textual` console integration:
+If you use `just`, you can add use the commands below to run `PicoLynx` in development mode, with the `textual` console integration.
 
 This command uses `uv` to sync the package dependencies and create a `.venv`:
 
@@ -122,7 +127,7 @@ Alias for:
 uv sync
 ```
 
-Running the command below in one terminal, will activate the `textual` console:
+Running the command below in one terminal, will activate the `textual` console, which listens to a running textual app in `--dev` mode:
 
 ```sh
 just console
@@ -134,7 +139,7 @@ Alias for:
 uv run textual console -x EVENT -x SYSTEM
 ```
 
-Running this command will run `PicoLynx` in development mode, with a loggin level set to 'DEBUG'.
+Running this command will run `PicoLynx` in development mode, with a logging level set to 'DEBUG'.
 
 ```sh
 just dev
