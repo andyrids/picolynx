@@ -3,12 +3,15 @@
 PicoLynx is a Windows-only TUI (Text-based User Interface) application for attaching and detaching microcontroller devices to WSL (Windows Subsystem for Linux) distributions. It monitors Windows [`WM_DEVICECHANGE`](https://learn.microsoft.com/en-us/windows/win32/devio/wm-devicechange) messages
 with `pywin32` and leverages `usbipd-win` to manage device connections.
 
+> [!TIP]
+> The TUI will react to USB Serial and USB Storage device connections and can run `usbipd-win` commands on any device in its interface.
+
 ![PicoLynx TUI](docs/img/picolynx.png)
 
 https://github.com/user-attachments/assets/d5382270-cae8-4eb4-90a6-28ccb96e5250
 
 > [!CAUTION]
-> If a device is disconnected when attached, it will remain in the connected device table due to the way Windows only registers a `DBT_DEVNODES_CHANGED` event without any event-specific data and not a `DBT_DEVICEREMOVECOMPLETE` event. `DBT_DEVNODES_CHANGED` events usually occur before informative `DBT_DEVICEARRIVAL` or `DBT_DEVICEREMOVECOMPLETE` events, and reacting to these and updating, creates race conditions.
+> If a device is disconnected when attached to WSL, it will remain in the connected device table. `WM_DEVICECHANGE` events under these circumstances are not granular enough, but a manual detach ('d' press) or refresh ('r' press) will trigger an update.
 
 ## Features
 
@@ -17,7 +20,8 @@ https://github.com/user-attachments/assets/d5382270-cae8-4eb4-90a6-28ccb96e5250
 - **Windows message monitoring**: Reacts instantly to hardware changes.
 - **Thread-safe**: Ensures safe device operations even with concurrent events.
 - **Beautiful TUI**: Built with `Textual` for a modern terminal experience & many theme options.
-- **Auto-attachment (TODO)**: Detects devices as they are connected & automatically attaches to WSL.
+- **Auto-detect**: Detects devices as they are connected & disconnected.
+- **Auto-attach (TODO)**: Auto-attachment of persisted devices on connection.
 
 ## Requirements
 
@@ -92,6 +96,16 @@ Select a device in the table and press the corresponding key to perform the acti
 
 ## Development
 
+Clone the repository and enter the `picolynx` directory.
+
+```sh
+git clone git@github.com:andyrids/picolynx.git
+```
+
+```sh
+cd picolynx
+```
+
 The `just` command runner ([GitHub page](https://github.com/casey/just)) is a handy way to save and run project-specific commands, which are written in a file called `justfile`.
 
 If you use `just`, you can add use the commands below to run `PicoLynx` in development mode, with the `textual` console integration:
@@ -120,7 +134,7 @@ Alias for:
 uv run textual console -x EVENT -x SYSTEM
 ```
 
-Running this command will run `PicoLynx` in development mode.
+Running this command will run `PicoLynx` in development mode, with a loggin level set to 'DEBUG'.
 
 ```sh
 just dev
@@ -129,11 +143,14 @@ just dev
 Alias for:
 
 ```sh
-uv run textual run --dev src/picolynx/__main__.py
+uv run textual run --dev src/picolynx/__main__.py --log-level DEBUG
 ```
 
-> [!NOTE]
-> Logging level can be modified in `__main__.py` by changing the `LOG_LEVEL` value.
+The logging level can be modified in with a `--log-level` option, which takes the following choices; '*DEBUG*', '*INFO*', '*WARNING*' (default), '*ERROR*' & '*CRITICAL*'.
+
+```sh
+uv run textual run --dev src/picolynx/__main__.py --log-level INFO
+```
 
 ## Acknowledgements
 

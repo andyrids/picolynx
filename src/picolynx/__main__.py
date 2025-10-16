@@ -21,8 +21,8 @@ Functions:
     main: Main application entry.
 """
 
+import argparse
 import asyncio
-from asyncio import events
 import ctypes
 import logging
 import threading
@@ -31,7 +31,6 @@ from asyncio.windows_events import NULL
 from collections import defaultdict
 from contextlib import contextmanager
 from ctypes import wintypes
-from dataclasses import dataclass
 from functools import lru_cache
 from typing import (
     TYPE_CHECKING,
@@ -56,6 +55,7 @@ from picolynx.components import (
     TUINavigation,
 )
 from picolynx.exceptions import USBIPDError, WSLError
+from picolynx.messages import *
 from picolynx.utility import LOG_FMT, is_administrator
 from picolynx.structures import *
 from picolynx.themes import GALAXY_THEME
@@ -67,7 +67,6 @@ from textual.binding import BindingType
 from textual.containers import Container
 from textual.widgets.data_table import RowKey
 from textual.logging import TextualHandler
-from textual.message import Message
 from textual._path import CSSPathType
 
 if TYPE_CHECKING:
@@ -82,49 +81,6 @@ WPARAM: TypeAlias = ctypes.c_size_t
 LPARAM: TypeAlias = ctypes.c_ssize_t
 
 WNDPROCTYPE = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, UMSG, WPARAM, LPARAM)
-
-LOG_LEVEL = logging.WARNING
-
-logging.basicConfig(
-    level=LOG_LEVEL, format=LOG_FMT, handlers=(TextualHandler(),)
-)
-
-
-@dataclass
-class USBIPDAttach(Message):
-    """Device information message for `usbipd attach` command."""
-
-    device: USBIPDDevice
-
-
-@dataclass
-class USBIPDBind(Message):
-    """Device information message for `usbipd attach` command."""
-
-    device: USBIPDDevice
-
-
-@dataclass
-class USBIPDDetach(Message):
-    """Device information message for `usbipd detach` command."""
-
-    device: USBIPDDevice
-
-
-@dataclass
-class USBIPDUnbind(Message):
-    """Device information message for `usbipd unbind` command."""
-
-    device: USBIPDDevice
-
-
-@dataclass
-class WMDeviceChange(Message):
-    """`WM_DEVICECHANGE` message for refreshing connected device state."""
-
-    broadcast_type: int
-    broadcast_port: str
-
 
 USBIPDMessage: TypeAlias = Union[
     USBIPDAttach, USBIPDBind, USBIPDDetach, USBIPDUnbind
@@ -349,32 +305,30 @@ class DeviceNotifier:
                 self.log.error(f"Expected `WM_DEVICECHANGE` ({umsg=:04X})")
                 return
 
-            self.log.info(f"`WM_DEVICECHANGE` - {wparam=:04X}, {lparam=:04X}")
+            self.log.info(f"`WM_DEVICECHANGE` - `{DBCEvent(wparam).name}`")
 
-            def post_devtype_port_message(
-                wparam: DBCEvent, lparam: int
-            ) -> None:
+            def post_devtype_message(wparam: DBCEvent, lparam: int) -> None:
                 """Calls TUI callback if device type is `DBT_DEVTYP_PORT`."""
 
-                dbcp_name = self._get_devtype_port_name(lparam)
+                dbcp_name = self._get_devtype_friendly_name(lparam)
                 if dbcp_name is None:
                     return
                 self.call_soon_threadsafe(self.callback, wparam, dbcp_name)
 
             match wparam:
                 case DBCEvent.DBT_DEVNODES_CHANGED if lparam:
-                    self.log.debug("`DBT_DEVNODES_CHANGED`")
+                    pass
                 case DBCEvent.DBT_DEVICEARRIVAL if lparam:
-                    post_devtype_port_message(wparam, lparam)
+                    post_devtype_message(wparam, lparam)
                 case DBCEvent.DBT_DEVICEREMOVECOMPLETE:
-                    post_devtype_port_message(wparam, lparam)
+                    post_devtype_message(wparam, lparam)
                 case _:
                     self.log.warning("Unhandled device-change event")
         except Exception as e:
             self.log.exception(e)
 
-    def _get_devtype_port_name(self, lparam: int) -> str | None:
-        """Get the DBCP name of a serial/port device.
+    def _get_devtype_friendly_name(self, lparam: int) -> str | None:
+        """Get a friendly name for a serial/port or volume device.
 
         When a device is attached to WSL and is disconnected, this triggers a
         `DBT_DEVICEREMOVECOMPLETE` event with a NULL `lparam`. Outside a WSL
@@ -390,10 +344,20 @@ class DeviceNotifier:
             return "UNK"
 
         hdr = DEV_BROADCAST_HDR.from_address(lparam)
-        if hdr.dbch_devicetype == DBCDeviceType.DBT_DEVTYP_PORT:
-            serial = DEV_BROADCAST_PORT_W.from_address(lparam)
-            name_offset = DEV_BROADCAST_PORT_W.dbcp_name.offset
-            return ctypes.wstring_at(ctypes.addressof(serial) + name_offset)
+        self.log.debug(f"`{DBCDeviceType(hdr.dbch_devicetype).name}`")
+        match hdr.dbch_devicetype:
+            case DBCDeviceType.DBT_DEVTYP_PORT:
+                serial = DEV_BROADCAST_PORT_W.from_address(lparam)
+                offset = DEV_BROADCAST_PORT_W.dbcp_name.offset
+                return ctypes.wstring_at(ctypes.addressof(serial) + offset)
+            case DBCDeviceType.DBT_DEVTYP_VOLUME:
+                volume = DEV_BROADCAST_VOLUME.from_address(lparam)
+                if mask := volume.dbcv_unitmask:
+                    drives = []
+                    drives.extend(
+                        chr(ord("A") + i) for i in range(26) if (mask >> i) & 1
+                    )
+                    return "|".join(f"{drive}:\\" for drive in drives)
         # not a PORT/SERIAL device
         return None
 
@@ -463,6 +427,7 @@ class TUI(App):
         ("b", "manual_bind", "bind"),
         ("d", "manual_detach", "detach"),
         ("u", "manual_unbind", "unbind"),
+        ("r", "manual_refresh", "refresh"),
     ]
 
     CSS_PATH: ClassVar[CSSPathType | None] = "app.tcss"
@@ -552,6 +517,10 @@ class TUI(App):
         if device := self.device_from_selected(selected_row_key):
             self.__log.info(f"Manual unbind @ BUSID {device.busid}")
             self.post_message(USBIPDUnbind(device))
+
+    def action_manual_refresh(self) -> None:
+        """Triggers a connected device refresh on `manual_refresh` action."""
+        self.incremental_device_update()
 
     def compose(self) -> ComposeResult:
         """Composes the TUI widgets."""
@@ -904,8 +873,28 @@ class TUI(App):
                 self.table_persisted.remove_row(busid)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parses logging level arguments."""
+    parser = argparse.ArgumentParser("Run `PicoLynx` TUI")
+    parser.add_argument(
+        "--log-level",
+        default="WARNING",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set logging level (default: `WARNING`)"
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     """Main application entry."""
+
+    arguments = parse_args()
+    LOG_LEVEL = getattr(logging, arguments.log_level.upper(), logging.WARNING)
+
+    logging.basicConfig(
+        level=LOG_LEVEL, format=LOG_FMT, handlers=(TextualHandler(),)
+    )
+
     if not is_administrator():
         # a nonzero value is considered 'abnormal' termination
         sys.exit(0) if run_as_administrator() else sys.exit(1)

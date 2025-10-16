@@ -10,7 +10,7 @@ console:
 	uv run textual console -x EVENT -x SYSTEM
 
 dev:
-    uv run textual run --dev src/picolynx/__main__.py
+    uv run textual run --dev src/picolynx/__main__.py --log-level DEBUG
 
 test:
     uv run pytest --cov=picolynx --cov-report=term-missing -vv
