@@ -215,7 +215,7 @@ def test_device_notifier_process_device_change_branches(
     notifier._get_devtype_friendly_name = MagicMock(return_value="COM1")
     notifier.process_device_change(0x0219, 0x8000, 1)
     notifier.call_soon_threadsafe.assert_called()
-    
+
     # `DBT_DEVICEREMOVECOMPLETE`
     notifier._get_devtype_friendly_name.return_value = "COM2"
     notifier.process_device_change(0x0219, 0x8004, 1)
