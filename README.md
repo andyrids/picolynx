@@ -6,7 +6,7 @@ with `pywin32` and leverages `usbipd-win` to manage device connections.
 > [!TIP]
 > The TUI will react to USB Serial and USB Storage device connections and can run `usbipd-win` commands on any device in its interface.
 
-![PicoLynx TUI](docs/img/picolynx.png)
+![PicoLynx TUI](docs/img/picolynx_menu.png)
 
 https://github.com/user-attachments/assets/d5382270-cae8-4eb4-90a6-28ccb96e5250
 
