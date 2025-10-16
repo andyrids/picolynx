@@ -89,6 +89,12 @@ USBIPDMessage: TypeAlias = Union[
 # type variable M is bound to USBIPDMessage
 M = TypeVar("M", bound=USBIPDMessage)
 
+# LOG_LEVEL = logging.DEBUG
+
+# logging.basicConfig(
+#     level=LOG_LEVEL, format=LOG_FMT, handlers=(TextualHandler(),)
+# )
+
 
 class DeviceNotifier:
     """Notifies TUI of Windows device changes.
@@ -344,7 +350,11 @@ class DeviceNotifier:
             return "UNK"
 
         hdr = DEV_BROADCAST_HDR.from_address(lparam)
-        self.log.debug(f"`{DBCDeviceType(hdr.dbch_devicetype).name}`")
+        try:
+            self.log.debug(f"`{DBCDeviceType(hdr.dbch_devicetype).name}`")
+        except ValueError:
+            self.log.error("Unknown device type")
+            return None
         match hdr.dbch_devicetype:
             case DBCDeviceType.DBT_DEVTYP_PORT:
                 serial = DEV_BROADCAST_PORT_W.from_address(lparam)

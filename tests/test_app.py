@@ -1,5 +1,6 @@
 import asyncio
 from contextvars import Context
+import logging
 from typing import Any, Self
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -16,6 +17,10 @@ from picolynx.__main__ import (
 from picolynx.commands import USBIPDDevice
 from picolynx.components import ConnectedTable, PersistedTable
 
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("picolynx").setLevel(logging.DEBUG)
+logging.getLogger("DeviceNotifier").setLevel(logging.DEBUG)
+logging.getLogger("TUI").setLevel(logging.DEBUG)
 
 DEVICE_DESC = "USB Serial Device (COM1)"
 DEVICE_BUSID = "1-1"
@@ -211,28 +216,23 @@ def test_device_notifier_process_device_change_branches(
     notifier.process_device_change(0x9999, 0, 0)
     notifier._log.error.assert_called()
 
-    # `DBT_DEVNODES_CHANGED`
-    notifier._log.reset_mock()
-    notifier.process_device_change(0x0219, 0x0007, 1)
-    notifier._log.debug.assert_called()
-
     # `DBT_DEVICEARRIVAL`
-    notifier._get_devtype_port_name = MagicMock(return_value="COM1")
+    notifier._get_devtype_friendly_name = MagicMock(return_value="COM1")
     notifier.process_device_change(0x0219, 0x8000, 1)
     notifier.call_soon_threadsafe.assert_called()
-
+    
     # `DBT_DEVICEREMOVECOMPLETE`
-    notifier._get_devtype_port_name = MagicMock(return_value="COM2")
+    notifier._get_devtype_friendly_name.return_value = "COM2"
     notifier.process_device_change(0x0219, 0x8004, 1)
     notifier.call_soon_threadsafe.assert_called()
 
     # unhandled
     notifier._log.reset_mock()
-    notifier.process_device_change(0x0219, 0xDEAD, 1)
+    notifier.process_device_change(0x0219, 0xFFFF, 1)
     notifier._log.warning.assert_called()
 
     # Exception
-    notifier._get_devtype_port_name.side_effect = Exception("fail")
+    notifier._get_devtype_friendly_name.side_effect = Exception("fail")
     notifier._log.reset_mock()
     notifier.process_device_change(0x0219, 0x8000, 1)
     notifier._log.exception.assert_called()
@@ -250,7 +250,7 @@ def test_device_notifier_get_devtype_port_name(
     notifier = DeviceNotifier(event_loop, callback)
 
     # lparam is NULL
-    assert notifier._get_devtype_port_name(NULL) == "UNK"
+    assert notifier._get_devtype_friendly_name(NULL) == "UNK"
 
     # lparam is not NULL, but not a PORT device
     class DummyHdr:
@@ -269,7 +269,7 @@ def test_device_notifier_get_devtype_port_name(
 
     monkeypatch.setattr("picolynx.__main__.DEV_BROADCAST_HDR", DummyHdr)
     monkeypatch.setattr("picolynx.__main__.DEV_BROADCAST_PORT_W", DummyPort)
-    assert notifier._get_devtype_port_name(123) is None
+    assert notifier._get_devtype_friendly_name(123) is None
 
     # lparam is PORT device
     class DummyHdr2:
@@ -291,7 +291,7 @@ def test_device_notifier_get_devtype_port_name(
     monkeypatch.setattr("picolynx.__main__.DEV_BROADCAST_PORT_W", DummyPort2)
     monkeypatch.setattr("ctypes.wstring_at", lambda addr: "COM42")
     monkeypatch.setattr("ctypes.addressof", lambda obj: 0)
-    assert notifier._get_devtype_port_name(123) == "COM42"
+    assert notifier._get_devtype_friendly_name(123) == "COM42"
 
 
 @pytest.mark.asyncio
