@@ -89,12 +89,6 @@ USBIPDMessage: TypeAlias = Union[
 # type variable M is bound to USBIPDMessage
 M = TypeVar("M", bound=USBIPDMessage)
 
-# LOG_LEVEL = logging.DEBUG
-
-# logging.basicConfig(
-#     level=LOG_LEVEL, format=LOG_FMT, handlers=(TextualHandler(),)
-# )
-
 
 class DeviceNotifier:
     """Notifies TUI of Windows device changes.

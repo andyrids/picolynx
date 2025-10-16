@@ -17,11 +17,6 @@ from picolynx.__main__ import (
 from picolynx.commands import USBIPDDevice
 from picolynx.components import ConnectedTable, PersistedTable
 
-logging.basicConfig(level=logging.DEBUG)
-logging.getLogger("picolynx").setLevel(logging.DEBUG)
-logging.getLogger("DeviceNotifier").setLevel(logging.DEBUG)
-logging.getLogger("TUI").setLevel(logging.DEBUG)
-
 DEVICE_DESC = "USB Serial Device (COM1)"
 DEVICE_BUSID = "1-1"
 
