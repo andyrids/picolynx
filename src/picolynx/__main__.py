@@ -880,7 +880,7 @@ def parse_args() -> argparse.Namespace:
         "--log-level",
         default="WARNING",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Set logging level (default: `WARNING`)"
+        help="Set logging level (default: `WARNING`)",
     )
     return parser.parse_args()
 
