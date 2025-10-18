@@ -13,7 +13,7 @@ The TUI will react to USB Serial and USB Storage device connections and can run 
 https://github.com/user-attachments/assets/d5382270-cae8-4eb4-90a6-28ccb96e5250
 
 > [!NOTE]
-> If a device is disconnected when attached to WSL, it will remain in the connected device table. `WM_DEVICECHANGE` events under these circumstances are not granular enough, but a manual detach ('d' press) or refresh ('r' press) will trigger an update.
+> If a device is disconnected when attached to WSL or a USB mass storage device is safely removed, it will remain in the connected device table. `WM_DEVICECHANGE` events under these circumstances are not granular enough, but a manual detach ('d' press) or refresh ('r' press) will trigger an update.
 
 ## Features
 
