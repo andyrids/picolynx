@@ -3,9 +3,6 @@ set shell := ["powershell.exe", "-c"]
 sync:
     uv sync
 
-activate:
-    . .\.venv\Scripts\activate
-
 console:
 	uv run textual console -x EVENT -x SYSTEM
 
